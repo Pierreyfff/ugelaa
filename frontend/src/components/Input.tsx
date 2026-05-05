@@ -5,32 +5,47 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string;
   hint?: string;
   icon?: React.ReactNode;
+  success?: boolean;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, icon, type, className = '', ...props }, ref) => {
+  ({ label, error, hint, icon, success, type, className = '', ...props }, ref) => {
     const [showPassword, setShowPassword] = useState(false);
     const isPassword = type === 'password';
 
     return (
       <div className="w-full">
-        {label && <label className="block text-sm font-semibold text-slate-700 mb-2">{label}</label>}
-        <div className="relative">
-          {icon && <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">{icon}</div>}
+        {label && (
+          <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+            {label}
+            {props.required && <span className="text-red-400 text-xs">*</span>}
+          </label>
+        )}
+        <div className="relative group">
+          {icon && (
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-sky-500 transition-colors">
+              {icon}
+            </div>
+          )}
           <input
             ref={ref}
             type={isPassword && showPassword ? 'text' : type}
-            className={`w-full px-4 py-2.5 rounded-xl border-2 transition-all duration-200 text-slate-900 placeholder-slate-400
-              focus:outline-none focus:ring-0
-              ${error ? 'border-red-300 focus:border-red-500 bg-red-50' : 'border-slate-200 focus:border-sky-500 bg-white hover:border-slate-300'}
-              ${icon ? 'pl-11' : ''} ${isPassword && !showPassword ? 'pr-11' : ''} ${className}`}
+            className={`w-full px-4 py-3 rounded-xl border-2 transition-all duration-200 text-slate-900 placeholder-slate-400
+              focus:outline-none focus:ring-0 text-sm
+              ${error 
+                ? 'border-red-300 focus:border-red-500 bg-red-50/50' 
+                : success 
+                  ? 'border-emerald-300 focus:border-emerald-500 bg-emerald-50/50'
+                  : 'border-slate-200 focus:border-sky-500 bg-white hover:border-slate-300 focus:bg-white'
+              }
+              ${icon ? 'pl-12' : ''} ${isPassword ? 'pr-12' : ''} ${className}`}
             {...props}
           />
           {isPassword && (
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-all"
             >
               {showPassword ? (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,9 +59,28 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               )}
             </button>
           )}
+          {!isPassword && !error && !success && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-200" />
+            </div>
+          )}
+          {success && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+          )}
         </div>
-        {error && <p className="mt-1.5 text-xs font-semibold text-red-500 flex items-center gap-1">{error}</p>}
-        {hint && !error && <p className="mt-1.5 text-xs text-slate-400">{hint}</p>}
+        {error && (
+          <p className="mt-2 text-xs font-semibold text-red-500 flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {error}
+          </p>
+        )}
+        {hint && !error && <p className="mt-2 text-xs text-slate-400">{hint}</p>}
       </div>
     );
   }

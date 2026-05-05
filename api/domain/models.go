@@ -116,6 +116,24 @@ type CreatePersonalRequest struct {
 	UU        string `json:"uu,omitempty"`
 }
 
+type BulkPersonalRequest struct {
+	Personal []CreatePersonalRequest `json:"personal" binding:"required"`
+	Mode     string                 `json:"mode"` // "create" | "upsert"
+}
+
+type BulkPersonalResponse struct {
+	Created int                    `json:"created"`
+	Updated int                    `json:"updated"`
+	Failed  int                    `json:"failed"`
+	Errors  []BulkError           `json:"errors,omitempty"`
+}
+
+type BulkError struct {
+	Index   int    `json:"index"`
+	DNI     string `json:"dni"`
+	Error   string `json:"error"`
+}
+
 type UpdatePersonalRequest struct {
 	DNI       string `json:"dni" binding:"min=5,max=20"`
 	Nombres   string `json:"nombres" binding:"min=1,max=100"`
@@ -157,4 +175,17 @@ type ErrorResponse struct {
 type SuccessResponse struct {
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+type PlanillaData struct {
+	DNI          string             `json:"dni"`
+	PersonalID   int                `json:"personal_id"`
+	Puesto       string             `json:"puesto"`
+	RD           string             `json:"rd"`
+	UU           string             `json:"uu"`
+	Ingresos     []Ingreso          `json:"ingresos"`
+	Descuentos   []Descuento       `json:"descuentos"`
+	TotalHaberes float64            `json:"total_haberes"`
+	TotalDesc    float64            `json:"total_descuentos"`
+	TotalLiquido float64            `json:"total_liquido"`
 }

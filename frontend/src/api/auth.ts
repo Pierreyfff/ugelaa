@@ -2,20 +2,19 @@ import { LoginRequest, LoginResponse } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
+export interface TokenPair {
+  access_token: string;
+  refresh_token: string;
+}
+
 async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const csrfToken = localStorage.getItem('csrf_token');
-
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...options.headers,
   };
-
-  if (csrfToken && ['POST', 'PUT', 'DELETE'].includes(options.method || '')) {
-    (headers as Record<string, string>)['X-CSRF-Token'] = csrfToken;
-  }
 
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...options,
@@ -32,7 +31,13 @@ async function fetchApi<T>(
     return {} as T;
   }
 
-  return response.json();
+  const data = await response.json();
+  
+  if (endpoint === '/auth/me' && response.ok) {
+    return data;
+  }
+  
+  return data as T;
 }
 
 export const authApi = {
@@ -53,11 +58,19 @@ export const authApi = {
     return fetchApi('/auth/me');
   },
 
-  refresh: async (refreshToken: string) => {
-    return fetchApi('/auth/refresh', {
+  refresh: async (): Promise<TokenPair> => {
+    return fetchApi<TokenPair>('/auth/refresh', {
       method: 'POST',
-      body: JSON.stringify({ refresh_token: refreshToken }),
     });
+  },
+
+  checkSession: async (): Promise<boolean> => {
+    try {
+      await fetchApi('/auth/me');
+      return true;
+    } catch {
+      return false;
+    }
   },
 };
 

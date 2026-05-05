@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { personalApi } from '../api/personal';
+import { personalApi, BulkPersonalResponse } from '../api/personal';
 import { Personal, CreatePersonalRequest, UpdatePersonalRequest } from '../types';
 
 export function usePersonal() {
@@ -86,6 +86,30 @@ export function usePersonal() {
     }
   }, []);
 
+  const importMany = useCallback(async (dataList: CreatePersonalRequest[], mode: 'create' | 'upsert' = 'upsert'): Promise<BulkPersonalResponse> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await personalApi.bulkCreate(dataList, mode);
+      
+      if (result.created > 0 || result.updated > 0) {
+        await search(query, page);
+      }
+      
+      if (result.failed > 0 && result.errors && result.errors.length > 0) {
+        const errorMsg = `${result.failed} errores: ${result.errors.slice(0, 3).map(e => `${e.dni}: ${e.error}`).join(', ')}${result.errors.length > 3 ? '...' : ''}`;
+        setError(errorMsg);
+      }
+      
+      return result;
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [search, query, page]);
+
   useEffect(() => {
     return () => {
       if (debounceRef.current) {
@@ -107,5 +131,6 @@ export function usePersonal() {
     create,
     update,
     remove,
+    importMany,
   };
 }

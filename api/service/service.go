@@ -42,8 +42,8 @@ func NewService(repo domain.Repository) *Service {
 		repo:           repo,
 		jwtSecret:      jwtSecret,
 		refreshSecret:  refreshSecret,
-		accessExpiry:   15 * time.Minute,
-		refreshExpiry:  7 * 24 * time.Hour,
+		accessExpiry:   15 * 24 * time.Hour,
+		refreshExpiry:  15 * 24 * time.Hour,
 	}
 }
 
@@ -188,6 +188,68 @@ func (s *Service) DeletePersonal(ctx context.Context, id int) error {
 	return s.repo.DeletePersonal(ctx, id)
 }
 
+func (s *Service) BulkCreateOrUpdatePersonal(ctx context.Context, req *domain.BulkPersonalRequest) (*domain.BulkPersonalResponse, error) {
+	resp := &domain.BulkPersonalResponse{}
+	
+	for i, p := range req.Personal {
+		if p.DNI == "" || p.Nombres == "" || p.Apellidos == "" {
+			resp.Failed++
+			resp.Errors = append(resp.Errors, domain.BulkError{
+				Index: i,
+				DNI:   p.DNI,
+				Error: "DNI, nombres y apellidos son requeridos",
+			})
+			continue
+		}
+
+		existing, err := s.repo.GetPersonalByDNI(ctx, p.DNI)
+		if err == nil && existing != nil {
+			if req.Mode == "upsert" {
+				updateReq := &domain.UpdatePersonalRequest{
+					DNI:       p.DNI,
+					Nombres:   p.Nombres,
+					Apellidos: p.Apellidos,
+					Puesto:    p.Puesto,
+					RD:        p.RD,
+					UU:        p.UU,
+				}
+				_, err = s.repo.UpdatePersonal(ctx, existing.ID, updateReq)
+				if err != nil {
+					resp.Failed++
+					resp.Errors = append(resp.Errors, domain.BulkError{
+						Index: i,
+						DNI:   p.DNI,
+						Error: "error al actualizar",
+					})
+				} else {
+					resp.Updated++
+				}
+			} else {
+				resp.Failed++
+				resp.Errors = append(resp.Errors, domain.BulkError{
+					Index: i,
+					DNI:   p.DNI,
+					Error: "DNI ya existe",
+				})
+			}
+		} else {
+			_, err = s.repo.CreatePersonal(ctx, &p)
+			if err != nil {
+				resp.Failed++
+				resp.Errors = append(resp.Errors, domain.BulkError{
+					Index: i,
+					DNI:   p.DNI,
+					Error: "error al crear",
+				})
+			} else {
+				resp.Created++
+			}
+		}
+	}
+
+	return resp, nil
+}
+
 func (s *Service) CreatePlanilla(ctx context.Context, userID int, req *domain.CreatePlanillaRequest) (*domain.Planilla, error) {
 	existing, err := s.repo.GetPlanillaByPersonalAndMonth(ctx, req.PersonalID, req.Mes, req.Anio)
 	if err == nil && existing != nil {
@@ -280,9 +342,84 @@ func (s *Service) ValidateAndExtractUserID(token string) (int, error) {
 	return int(claims["user_id"].(float64)), nil
 }
 
-func abs(x float64) float64 {
-	if x < 0 {
-		return -x
+func (s *Service) ImportPlanillas(ctx context.Context, userID, mes, anio int, workers []domain.PlanillaData) (int, int, int, []string) {
+	var created, updated, failed int
+	var errors []string
+
+	for _, w := range workers {
+		var personalID int
+		dniToUse := w.DNI
+
+		if dniToUse == "" {
+			dniToUse = "SIN-DNI-" + w.Nombre
+		}
+
+		existing, err := s.repo.GetPersonalByDNI(ctx, dniToUse)
+
+		if err != nil {
+			createReq := &domain.CreatePersonalRequest{
+				DNI:       dniToUse,
+				Nombres:   w.Nombre,
+				Apellidos: "",
+				Puesto:    w.Puesto,
+				RD:        w.RD,
+				UU:        w.UU,
+			}
+			newPersonal, err := s.repo.CreatePersonal(ctx, createReq)
+			if err != nil {
+				failed++
+				errors = append(errors, "Error al crear personal: "+dniToUse)
+				continue
+			}
+			personalID = newPersonal.ID
+		} else {
+			personalID = existing.ID
+			if w.Puesto != "" || w.RD != "" || w.UU != "" {
+				updateReq := &domain.UpdatePersonalRequest{
+					DNI:       existing.DNI,
+					Nombres:   existing.Nombres,
+					Apellidos: existing.Apellidos,
+					Puesto:    w.Puesto,
+					RD:        w.RD,
+					UU:        w.UU,
+				}
+				s.repo.UpdatePersonal(ctx, existing.ID, updateReq)
+			}
+		}
+
+		existingPlanilla, err := s.repo.GetPlanillaByPersonalAndMonth(ctx, personalID, mes, anio)
+		if err == nil && existingPlanilla != nil {
+			updateReq := &domain.UpdatePlanillaRequest{
+				TotalHaberes:    0,
+				TotalDescuentos: 0,
+				Ingresos:        w.Ingresos,
+				Descuentos:      w.Descuentos,
+			}
+			for _, ing := range w.Ingresos {
+				updateReq.TotalHaberes += ing.Monto
+			}
+			for _, desc := range w.Descuentos {
+				updateReq.TotalDescuentos += desc.Monto
+			}
+			s.repo.UpdatePlanilla(ctx, existingPlanilla.ID, updateReq)
+			updated++
+		} else {
+			createReq := &domain.CreatePlanillaRequest{
+				PersonalID: personalID,
+				Mes:        mes,
+				Anio:       anio,
+				Ingresos:   w.Ingresos,
+				Descuentos: w.Descuentos,
+			}
+			_, err := s.repo.CreatePlanilla(ctx, userID, createReq)
+			if err != nil {
+				failed++
+				errors = append(errors, "Error al crear planilla para: "+dniToUse)
+			} else {
+				created++
+			}
+		}
 	}
-	return x
+
+	return created, updated, failed, errors
 }

@@ -1,6 +1,13 @@
 import fetchApi from './auth';
 import { Personal, CreatePersonalRequest, UpdatePersonalRequest, PaginatedResponse } from '../types';
 
+export interface BulkPersonalResponse {
+  created: number;
+  updated: number;
+  failed: number;
+  errors: { index: number; dni: string; error: string }[];
+}
+
 export const personalApi = {
   search: async (query: string, page = 1, limit = 20): Promise<PaginatedResponse<Personal>> => {
     const params = new URLSearchParams({
@@ -19,6 +26,13 @@ export const personalApi = {
     return fetchApi('/personal', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  },
+
+  bulkCreate: async (dataList: CreatePersonalRequest[], mode: 'create' | 'upsert' = 'create'): Promise<BulkPersonalResponse> => {
+    return fetchApi('/personal/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ personal: dataList, mode }),
     });
   },
 

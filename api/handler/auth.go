@@ -2,10 +2,16 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/planillas/api/domain"
 	"github.com/planillas/api/service"
+)
+
+const (
+	CookieMaxAge = 15 * 24 * 60 * 60 // 15 días en segundos
+	CSRFMaxAge  = 24 * 60 * 60      // 24 horas
 )
 
 type AuthHandler struct {
@@ -33,15 +39,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("access_token", resp.Token.AccessToken, 900, "/", "", true, true)
-	c.SetCookie("refresh_token", resp.Token.RefreshToken, 604800, "/", "", true, true)
-
 	csrfToken := generateCSRFToken()
-	c.SetCookie("csrf_token", csrfToken, 86400, "/", "", false, true)
+
+	c.SetCookie("access_token", resp.Token.AccessToken, CookieMaxAge, "/", "", true, true)
+	c.SetCookie("refresh_token", resp.Token.RefreshToken, CookieMaxAge, "/", "", true, true)
+	c.SetCookie("csrf_token", csrfToken, CSRFMaxAge, "/", "", false, true)
 
 	c.JSON(http.StatusOK, gin.H{
-		"user": resp.User,
+		"user":       resp.User,
 		"csrf_token": csrfToken,
+		"expires":   time.Now().Add(15 * 24 * time.Hour).Unix(),
 	})
 }
 
@@ -52,16 +59,29 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
+	cookie, err := c.Cookie("refresh_token")
+	if err != nil || cookie != req.RefreshToken {
+		c.JSON(http.StatusUnauthorized, domain.ErrorResponse{Error: "token inválido"})
+		return
+	}
+
 	token, err := h.svc.RefreshToken(c.Request.Context(), req.RefreshToken)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, domain.ErrorResponse{Error: "token inválido o expirado"})
 		return
 	}
 
-	c.SetCookie("access_token", token.AccessToken, 900, "/", "", true, true)
-	c.SetCookie("refresh_token", token.RefreshToken, 604800, "/", "", true, true)
+	csrfToken := generateCSRFToken()
 
-	c.JSON(http.StatusOK, gin.H{"access_token": token.AccessToken})
+	c.SetCookie("access_token", token.AccessToken, CookieMaxAge, "/", "", true, true)
+	c.SetCookie("refresh_token", token.RefreshToken, CookieMaxAge, "/", "", true, true)
+	c.SetCookie("csrf_token", csrfToken, CSRFMaxAge, "/", "", false, true)
+
+	c.JSON(http.StatusOK, gin.H{
+		"access_token": token.AccessToken,
+		"csrf_token": csrfToken,
+		"expires":   time.Now().Add(15 * 24 * time.Hour).Unix(),
+	})
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
@@ -107,7 +127,7 @@ func (h *AuthHandler) ListUsers(c *gin.Context) {
 
 type CreateUserRequest struct {
 	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
+	Password string `json:"password" binding:"required,min=8"`
 	Nombre   string `json:"nombre" binding:"required"`
 }
 

@@ -1,9 +1,14 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/planillas/api/domain"
@@ -13,6 +18,97 @@ import (
 
 type PlanillaHandler struct {
 	svc *service.Service
+}
+
+type ImportPlanillaRequest struct {
+	Mes  int `json:"mes" binding:"required,min=1,max=12"`
+	Anio int `json:"anio" binding:"required,min=1993,max=2100"`
+}
+
+type PlanillaData struct {
+	DNI          string             `json:"dni"`
+	PersonalID   int                `json:"personal_id"`
+	Puesto       string             `json:"puesto"`
+	RD           string             `json:"rd"`
+	UU           string             `json:"uu"`
+	Ingresos     []domain.Ingreso   `json:"ingresos"`
+	Descuentos   []domain.Descuento `json:"descuentos"`
+	TotalHaberes float64            `json:"total_haberes"`
+	TotalDesc    float64            `json:"total_descuentos"`
+	TotalLiquido float64            `json:"total_liquido"`
+}
+
+type ImportPlanillaResponse struct {
+	Created int            `json:"created"`
+	Updated int            `json:"updated"`
+	Failed  int            `json:"failed"`
+	Workers []PlanillaData `json:"workers"`
+	Errors  []string       `json:"errors,omitempty"`
+}
+
+const pythonServiceURL = "http://python:5000"
+
+type PythonWorker struct {
+	Nombre        string              `json:"nombre"`
+	DNI           string              `json:"dni"`
+	Puesto        string              `json:"puesto"`
+	RD            string              `json:"rd"`
+	UU            string              `json:"uu"`
+	TotalHaberes  float64             `json:"total_haberes"`
+	TotalDescuentos float64           `json:"total_descuentos"`
+	TotalLiquido  float64             `json:"total_liquido"`
+	Ingresos      []domain.Ingreso    `json:"ingresos"`
+	Descuentos    []domain.Descuento  `json:"descuentos"`
+}
+
+type PythonResponse struct {
+	Success bool           `json:"success"`
+	Workers []PythonWorker `json:"workers"`
+	Total   int            `json:"total"`
+	Error   string        `json:"error,omitempty"`
+}
+
+func callPythonService(fileData []byte, filename string) ([]PythonWorker, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	part, err := w.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, fmt.Errorf("error creando form file: %v", err)
+	}
+	if _, err := part.Write(fileData); err != nil {
+		return nil, fmt.Errorf("error escribiendo archivo: %v", err)
+	}
+	w.Close()
+
+	req, err := http.NewRequest("POST", pythonServiceURL+"/procesar", &buf)
+	if err != nil {
+		return nil, fmt.Errorf("error creando request: %v", err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error enviando archivo a Python: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Python service error: %s", string(body))
+	}
+
+	var result PythonResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decodificando respuesta: %v", err)
+	}
+
+	if result.Error != "" {
+		return nil, fmt.Errorf("error en Python: %s", result.Error)
+	}
+
+	return result.Workers, nil
 }
 
 func NewPlanillaHandler(svc *service.Service) *PlanillaHandler {
@@ -165,8 +261,8 @@ func (h *PlanillaHandler) Prefill(c *gin.Context) {
 	}
 
 	anio, err := strconv.Atoi(anioStr)
-	if err != nil || anio < 2000 {
-		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "año inválido (>=2000)"})
+	if err != nil || anio < 1993 || anio > 2100 {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "año inválido (1993-2100)"})
 		return
 	}
 
@@ -177,16 +273,116 @@ func (h *PlanillaHandler) Prefill(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":        "planilla anterior cargada como base",
-		"planilla":       prevPlanilla,
-		"ingresos":       prevPlanilla.Ingresos,
-		"descuentos":     prevPlanilla.Descuentos,
-		"total_haberes":  prevPlanilla.TotalHaberes,
+		"message":          "planilla anterior cargada como base",
+		"planilla":         prevPlanilla,
+		"ingresos":         prevPlanilla.Ingresos,
+		"descuentos":       prevPlanilla.Descuentos,
+		"total_haberes":    prevPlanilla.TotalHaberes,
 		"total_descuentos": prevPlanilla.TotalDescuentos,
 	})
 }
 
 var MESES_ES = []string{"Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"}
+
+func (h *PlanillaHandler) ImportPlanilla(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "Archivo requerido", Details: err.Error()})
+		return
+	}
+
+	mesStr := c.PostForm("mes")
+	anioStr := c.PostForm("anio")
+
+	if mesStr == "" || anioStr == "" {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "Mes y año requeridos"})
+		return
+	}
+
+	mes, err := strconv.Atoi(mesStr)
+	if err != nil || mes < 1 || mes > 12 {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "Mes inválido (1-12)"})
+		return
+	}
+
+	anio, err := strconv.Atoi(anioStr)
+	if err != nil || anio < 1993 || anio > 2100 {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "Año inválido (1993-2100)"})
+		return
+	}
+
+	src, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.ErrorResponse{Error: "Error al abrir archivo"})
+		return
+	}
+	defer src.Close()
+
+	fileData, err := io.ReadAll(src)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.ErrorResponse{Error: "Error al leer archivo"})
+		return
+	}
+
+	pythonWorkers, err := callPythonService(fileData, file.Filename)
+	if err != nil {
+		fmt.Printf("[ERROR] Error calling Python service: %v\n", err)
+		c.JSON(http.StatusInternalServerError, domain.ErrorResponse{Error: "Error al procesar archivo con Python", Details: err.Error()})
+		return
+	}
+
+	if len(pythonWorkers) == 0 {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "No se encontraron datos válidos de planillas"})
+		return
+	}
+
+	var domainWorkers []domain.PlanillaData
+	for _, pw := range pythonWorkers {
+		dp := domain.PlanillaData{
+			DNI:          pw.DNI,
+			Puesto:       pw.Puesto,
+			RD:           pw.RD,
+			UU:           pw.UU,
+			TotalHaberes: pw.TotalHaberes,
+			TotalDesc:    pw.TotalDescuentos,
+			TotalLiquido: pw.TotalLiquido,
+			Ingresos:     pw.Ingresos,
+			Descuentos:   pw.Descuentos,
+		}
+		domainWorkers = append(domainWorkers, dp)
+	}
+
+	userID, _ := c.Get("userID")
+	uid := 1
+	if userID != nil {
+		uid = userID.(int)
+	}
+
+	created, updated, failed, errors := h.svc.ImportPlanillas(c.Request.Context(), uid, mes, anio, domainWorkers)
+
+	var workers []PlanillaData
+	for _, pw := range pythonWorkers {
+		workers = append(workers, PlanillaData{
+			DNI:          pw.DNI,
+			Puesto:       pw.Puesto,
+			RD:           pw.RD,
+			UU:           pw.UU,
+			TotalHaberes: pw.TotalHaberes,
+			TotalDesc:    pw.TotalDescuentos,
+			TotalLiquido: pw.TotalLiquido,
+			Ingresos:     pw.Ingresos,
+			Descuentos:   pw.Descuentos,
+		})
+	}
+
+	c.JSON(http.StatusOK, ImportPlanillaResponse{
+		Created: created,
+		Updated: updated,
+		Failed:  failed,
+		Workers: workers,
+		Errors:  errors,
+	})
+}
 
 func (h *PlanillaHandler) ExportExcel(c *gin.Context) {
 	personalIDStr := c.Query("personal_id")
@@ -240,17 +436,17 @@ func (h *PlanillaHandler) ExportExcel(c *gin.Context) {
 	f.SetSheetName("Sheet1", "Boleta_Pago")
 
 	headerStyleBlue, _ := f.NewStyle(&excelize.Style{
-		Font: &excelize.Font{Bold: true, Size: 14, Color: "#FFFFFF"},
-		Fill: excelize.Fill{Type: "pattern", Color: []string{"#1E40AF"}, Pattern: 1},
+		Font:      &excelize.Font{Bold: true, Size: 14, Color: "#FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"#1E40AF"}, Pattern: 1},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 	subHeaderStyle, _ := f.NewStyle(&excelize.Style{
-		Font: &excelize.Font{Bold: true, Size: 11, Color: "#1E40AF"},
-		Fill: excelize.Fill{Type: "pattern", Color: []string{"#DBEAFE"}, Pattern: 1},
+		Font:      &excelize.Font{Bold: true, Size: 11, Color: "#1E40AF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"#DBEAFE"}, Pattern: 1},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 	moneyStyle, _ := f.NewStyle(&excelize.Style{
-		NumFmt: 2,
+		NumFmt:    2,
 		Alignment: &excelize.Alignment{Horizontal: "right"},
 	})
 	boldStyle, _ := f.NewStyle(&excelize.Style{
@@ -365,8 +561,8 @@ func (h *PlanillaHandler) ExportExcel(c *gin.Context) {
 
 	liquido := totalIngresos - totalDescuentos
 	liquidoStyle, _ := f.NewStyle(&excelize.Style{
-		Font: &excelize.Font{Bold: true, Size: 12, Color: "#059669"},
-		Fill: excelize.Fill{Type: "pattern", Color: []string{"#D1FAE5"}, Pattern: 1},
+		Font:      &excelize.Font{Bold: true, Size: 12, Color: "#059669"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"#D1FAE5"}, Pattern: 1},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 	f.MergeCell("Boleta_Pago", "A"+strconv.Itoa(row), "B"+strconv.Itoa(row))

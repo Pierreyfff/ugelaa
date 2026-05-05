@@ -105,6 +105,7 @@ func main() {
 	{
 		personal.GET("", personalHandler.Search)
 		personal.POST("", personalHandler.Create)
+		personal.POST("/bulk", personalHandler.BulkCreate)
 		personal.GET("/dni/:dni", personalHandler.GetByDNI)
 		personal.GET("/:id", personalHandler.Get)
 		personal.PUT("/:id", personalHandler.Update)
@@ -115,6 +116,7 @@ func main() {
 	{
 		planilla.GET("", planillaHandler.List)
 		planilla.POST("", planillaHandler.Create)
+		planilla.POST("/import", planillaHandler.ImportPlanilla)
 		planilla.GET("/export", planillaHandler.ExportExcel)
 		planilla.GET("/:id", planillaHandler.Get)
 		planilla.PUT("/:id", planillaHandler.Update)

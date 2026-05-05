@@ -182,3 +182,45 @@ func (h *PersonalHandler) Delete(c *gin.Context) {
 
 	c.JSON(http.StatusOK, domain.SuccessResponse{Message: "personal eliminado"})
 }
+
+func (h *PersonalHandler) BulkCreate(c *gin.Context) {
+	var req domain.BulkPersonalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "datos inválidos", Details: err.Error()})
+		return
+	}
+
+	if len(req.Personal) == 0 {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "debe incluir al menos un registro"})
+		return
+	}
+
+	if req.Mode == "" {
+		req.Mode = "create"
+	}
+
+	if req.Mode != "create" && req.Mode != "upsert" {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "modo inválido. Use 'create' o 'upsert'"})
+		return
+	}
+
+	if len(req.Personal) > 500 {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "máximo 500 registros permitidos"})
+		return
+	}
+
+	resp, err := h.svc.BulkCreateOrUpdatePersonal(c.Request.Context(), &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.ErrorResponse{Error: "error al importar"})
+		return
+	}
+
+	status := http.StatusOK
+	if resp.Failed > 0 && resp.Created == 0 && resp.Updated == 0 {
+		status = http.StatusBadRequest
+	} else if resp.Failed > 0 {
+		status = http.StatusPartialContent
+	}
+
+	c.JSON(status, resp)
+}

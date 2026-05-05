@@ -106,13 +106,24 @@ func SecureSecurityHeaders() gin.HandlerFunc {
 
 func SecureAuthMiddleware(svc *service.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Try to get token from cookie first, then from Authorization header
 		cookie, err := c.Cookie("access_token")
+		var token string
+
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "no autenticado"})
-			return
+			// Try Authorization header: "Bearer <token>"
+			authHeader := c.GetHeader("Authorization")
+			if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			} else {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "no autenticado"})
+				return
+			}
+		} else {
+			token = cookie
 		}
 
-		userID, err := svc.ValidateAndExtractUserID(cookie)
+		userID, err := svc.ValidateAndExtractUserID(token)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token inválido o expirado"})
 			return
@@ -126,6 +137,12 @@ func SecureAuthMiddleware(svc *service.Service) gin.HandlerFunc {
 func SecureCSRFProtection(secureCtx *SecureContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == "POST" || c.Request.Method == "PUT" || c.Request.Method == "DELETE" {
+			// Skip CSRF para FormData (import, uploads, etc)
+			if strings.Contains(c.ContentType(), "multipart/form-data") {
+				c.Next()
+				return
+			}
+
 			token := c.GetHeader("X-CSRF-Token")
 			if token == "" {
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "CSRF token requerido"})
@@ -166,7 +183,7 @@ func SecureRateLimiter(secureCtx *SecureContext, maxAttempts int, window time.Du
 			entry.Count++
 			if entry.Count > maxAttempts {
 				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-					"error":      "demasiadas solicitudes",
+					"error":       "demasiadas solicitudes",
 					"retry_after": entry.ResetTime.Sub(now).Seconds(),
 				})
 				return
@@ -179,6 +196,12 @@ func SecureRateLimiter(secureCtx *SecureContext, maxAttempts int, window time.Du
 
 func InputValidation() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Skip validation para FormData (file uploads, imports, etc)
+		if strings.Contains(c.ContentType(), "multipart/form-data") {
+			c.Next()
+			return
+		}
+
 		if c.Request.Method == "POST" || c.Request.Method == "PUT" {
 			bodyBytes, err := io.ReadAll(c.Request.Body)
 			if err != nil {
