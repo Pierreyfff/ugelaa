@@ -637,9 +637,11 @@ func ImportarHaberes(c *gin.Context) {
 				personal.UU = *emp.Codigo
 			}
 			if err := db.Create(&personal).Error; err != nil {
+				fmt.Printf("[DEBUG] Error creating personal '%s': %v\n", emp.Nombre, err)
 				warnings = append(warnings, fmt.Sprintf("No se pudo crear '%s': %v", emp.Nombre, err))
 				continue
 			}
+			fmt.Printf("[DEBUG] Created personal ID=%d for '%s'\n", personal.ID, emp.Nombre)
 			personalCreados++
 		} else {
 			// Fill in any missing fields
@@ -663,7 +665,11 @@ func ImportarHaberes(c *gin.Context) {
 
 		// Find or create planilla for this period
 		var planilla models.Planilla
-		db.Where("personal_id = ? AND mes = ? AND anio = ?", personal.ID, mes, anio).First(&planilla)
+		err := db.Where("personal_id = ? AND mes = ? AND anio = ?", personal.ID, mes, anio).First(&planilla).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			warnings = append(warnings, fmt.Sprintf("Error al buscar planilla para '%s': %v", emp.Nombre, err))
+			continue
+		}
 
 		if planilla.ID == 0 {
 			planilla = models.Planilla{
@@ -673,10 +679,17 @@ func ImportarHaberes(c *gin.Context) {
 				CreadoEn:   time.Now(),
 			}
 			if err := db.Create(&planilla).Error; err != nil {
+				fmt.Printf("[DEBUG] Error creating planilla for personal_id=%d: %v\n", personal.ID, err)
 				warnings = append(warnings, fmt.Sprintf("Error al crear planilla para '%s': %v", emp.Nombre, err))
 				continue
 			}
+			fmt.Printf("[DEBUG] Created planilla ID=%d for personal_id=%d\n", planilla.ID, personal.ID)
 			planillasCreadas++
+		}
+
+		if planilla.ID == 0 {
+			warnings = append(warnings, fmt.Sprintf("Planilla sin ID válido para '%s', omitiendo ingresos/descuentos", emp.Nombre))
+			continue
 		}
 
 		// Insert haberes (ingresos)

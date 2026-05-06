@@ -24,6 +24,10 @@ type Personal struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+func (Personal) TableName() string { return "personal" }
+
+func (Planilla) TableName() string { return "planilla" }
+
 type Planilla struct {
 	ID              uint        `json:"id" gorm:"primaryKey"`
 	PersonalID      uint        `json:"personal_id" gorm:"not null"`
