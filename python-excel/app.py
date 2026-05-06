@@ -1,7 +1,7 @@
 import os
 import re
 import requests
-from datetime import datetime
+import xlrd
 from flask import Flask, request, jsonify
 from openpyxl import load_workbook
 from werkzeug.utils import secure_filename
@@ -13,256 +13,170 @@ UPLOAD_FOLDER = "/app/uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-MESES = {
-    'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
-    'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
-    'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12,
-}
+DNI_PATTERN = re.compile(r"DNI\s*(\d+)", re.IGNORECASE)
+IGNORAR_CONCEPTOS = {"REINTEGRO", "ESCOLARIDAD", "AGUINALDO", "DETALLE"}
 
 
-def to_float(val):
-    """Safely convert to float; handles comma decimal separators."""
-    if val is None:
-        return 0.0
+def parsear_valor(v):
+    if v is None:
+        return None
     try:
-        return float(str(val).replace(',', '.'))
-    except (ValueError, TypeError):
-        return 0.0
+        f = float(v)
+        return round(f, 2) if f else None
+    except (TypeError, ValueError):
+        return None
 
 
-def to_str(val):
-    """Return stripped string or empty string."""
-    if val is None:
-        return ''
-    return str(val).strip()
+def limpiar_concepto(c: str) -> str:
+    return c.strip().lstrip("+").strip().upper()
 
 
-def build_merged_map(ws):
+def extraer_dni(texto: str):
+    if not texto:
+        return None
+    m = DNI_PATTERN.search(str(texto))
+    return m.group(1) if m else None
+
+
+def _leer_filas(filepath: str) -> list:
+    """Return all rows as a list of tuples, supporting both .xls and .xlsx."""
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext == ".xls":
+        wb = xlrd.open_workbook(filepath)
+        ws = wb.sheet_by_index(0)
+        filas = []
+        for rx in range(ws.nrows):
+            row = []
+            for cx in range(ws.ncols):
+                cell = ws.cell(rx, cx)
+                # xlrd type 0=empty,1=text,2=number,3=date,4=bool,5=error,6=blank
+                if cell.ctype in (0, 5, 6):
+                    row.append(None)
+                elif cell.ctype == 2:
+                    # Return int if value is whole number, else float
+                    v = cell.value
+                    row.append(int(v) if v == int(v) else v)
+                else:
+                    row.append(cell.value)
+            filas.append(tuple(row))
+        return filas
+    else:
+        wb = load_workbook(filepath, data_only=True)
+        ws = wb.active
+        return list(ws.iter_rows(values_only=True))
+
+
+def extraer_empleados(filepath: str) -> list:
     """
-    Return a dict mapping (row, col) -> cell_value for every cell that
-    belongs to a merged range, using the top-left cell's value.
+    Parse a payroll Excel with vertical-block layout:
+
+      Col A    | Col B           | Col C    | Col D
+      ---------+-----------------+----------+--------
+      HABERES  | Apellidos Nomb. | BASICA   | 0.03
+      (merged) | (merged)        | DL19990  | 60.00
+               | CARGO/PUESTO    | TPH      | 19.20
+               | RD 150-93       | ...
+               | uu-01-0-005     |
+      DSCTOS   |                 | DL20530  | 3.80
+      TOTAL HABERES              |          | 153.92
+      TOTAL DESCUENTOS           |          | 76.27
+      TOTAL LIQUIDO              |          | 77.65
+
+    Mes/Año are NOT read from the file; they come from the user request.
     """
-    merged = {}
-    for rng in ws.merged_cells.ranges:
-        top_val = ws.cell(rng.min_row, rng.min_col).value
-        for r in range(rng.min_row, rng.max_row + 1):
-            for c in range(rng.min_col, rng.max_col + 1):
-                merged[(r, c)] = top_val
-    return merged
+    filas = _leer_filas(filepath)
 
+    empleados = []
+    i = 0
+    n = len(filas)
 
-def find_columns(ws):
-    """
-    Scan the first 15 rows to detect:
-      mes        – month number (1-12)
-      anio       – year (4-digit number, or current year)
-      detalle_col – 1-based column index of the 'DETALLE' header
-      monto_col  – 1-based column index of the month-name header
-    """
-    mes = 0
-    anio = datetime.now().year
-    detalle_col = None
-    monto_col = None
+    while i < n:
+        fila = filas[i]
+        col_a = str(fila[0]).strip() if fila[0] else ""
 
-    for r in range(1, min(16, ws.max_row + 1)):
-        for c in range(1, ws.max_column + 1):
-            raw = ws.cell(r, c).value
-            if raw is None:
-                continue
-            s = str(raw).strip().lower()
-            if s == 'detalle':
-                detalle_col = c
-            elif s in MESES:
-                mes = MESES[s]
-                monto_col = c
-            else:
-                # Partial match on first 3 chars
-                for mname, mnum in MESES.items():
-                    if len(s) >= 3 and s.startswith(mname[:3]):
-                        mes = mnum
-                        monto_col = c
-                        break
-                # Year detection
-                yr = re.search(r'20\d{2}', str(raw))
-                if yr:
-                    anio = int(yr.group())
+        if col_a == "HABERES" and len(fila) > 1 and fila[1]:
+            emp = {
+                "nombre": str(fila[1]).strip(),
+                "cargo": None,
+                "resolucion": None,
+                "codigo": None,
+                "dni": None,
+                "haberes": [],
+                "descuentos": [],
+                "total_haberes": None,
+                "total_descuentos": None,
+                "total_liquido": None,
+            }
 
-    if detalle_col is None:
-        detalle_col = 3  # fallback: column C
-    if monto_col is None:
-        monto_col = detalle_col + 1  # fallback: column right after DETALLE
+            concepto_inicial = str(fila[2]).strip() if len(fila) > 2 and fila[2] else ""
+            valor_inicial = parsear_valor(fila[3] if len(fila) > 3 else None)
+            if concepto_inicial and limpiar_concepto(concepto_inicial) not in IGNORAR_CONCEPTOS:
+                if valor_inicial is not None:
+                    emp["haberes"].append({"concepto": concepto_inicial, "monto": valor_inicial})
 
-    return mes, anio, detalle_col, monto_col
+            seccion = "HABERES"
+            i += 1
 
+            while i < n:
+                f = filas[i]
+                a = str(f[0]).strip() if len(f) > 0 and f[0] else ""
+                b = str(f[1]).strip() if len(f) > 1 and f[1] else ""
+                c_cell = str(f[2]).strip() if len(f) > 2 and f[2] else ""
+                d = parsear_valor(f[3] if len(f) > 3 else None)
 
-def classify_emp_info(text):
-    """
-    Classify employee info cell text.
-    Returns a tuple (category, value) where category is one of:
-      'rd' | 'uu' | 'dni' | 'puesto'
-    """
-    if not text:
-        return None, None
-    u = text.upper().strip()
-    if re.match(r'^RD[\s\-/]', u) or re.match(r'^R\.?D\.?[\s\-/]', u):
-        return 'rd', text
-    if re.match(r'^UU[\s\-\d]', u) or u.startswith('UU-'):
-        return 'uu', text
-    if 'DNI' in u:
-        digits = re.sub(r'\D', '', text)
-        return 'dni', digits
-    return 'puesto', text
+                if a == "TOTAL HABERES":
+                    emp["total_haberes"] = d
+                    i += 1
+                    continue
+                if a == "TOTAL DESCUENTOS":
+                    emp["total_descuentos"] = d
+                    i += 1
+                    continue
+                if a == "TOTAL LIQUIDO":
+                    emp["total_liquido"] = d
+                    i += 1
+                    break
 
+                if a == "DSCTOS":
+                    seccion = "DSCTOS"
+                    if c_cell and limpiar_concepto(c_cell) not in IGNORAR_CONCEPTOS and d is not None:
+                        emp["descuentos"].append({"concepto": c_cell, "monto": d})
+                    i += 1
+                    continue
 
-def parse_excel_planilla(filepath):
-    """
-    Parse a payroll Excel file that uses a vertical-block layout.
+                if a == "HABERES" and len(f) > 1 and f[1]:
+                    break
 
-    Each employee occupies one block structured as:
+                if b:
+                    dni_encontrado = extraer_dni(b)
+                    if dni_encontrado:
+                        emp["dni"] = dni_encontrado
+                    elif re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.)\s*[\d\-/]", b, re.IGNORECASE):
+                        emp["resolucion"] = b
+                    elif re.match(r"^uu-", b, re.IGNORECASE):
+                        emp["codigo"] = b
+                    elif not re.match(r"^(TOTAL|DSCTOS)", b, re.IGNORECASE):
+                        if emp["cargo"] is None:
+                            emp["cargo"] = b
 
-      Col seccion | Col empinfo        | Col detalle | Col monto
-      ─────────────────────────────────────────────────────────
-      HABERES     | Apellidos Nombres  | BASICA      | 0.03
-      (merged)    | (merged)           | PERSONAL    | 0.01
-                  | PUESTO             | DL19990     | 60.00
-                  | RD xxx-xx          | TPH         | 19.20
-                  | uu-xx-x-xxx        | Diferencial | 5.05
-      DSCTOS      |                    | DL20530     | 3.80
-      TOTAL HABERES                                  | 153.92
-      TOTAL DESCUENTOS                               | 76.27
-      TOTAL LIQUIDO                                  | 77.65
+                if c_cell:
+                    nombre_limpio = limpiar_concepto(c_cell)
+                    if nombre_limpio not in IGNORAR_CONCEPTOS and not nombre_limpio.startswith("+"):
+                        if d is not None:
+                            item = {"concepto": c_cell.strip(), "monto": d}
+                            if seccion == "HABERES":
+                                emp["haberes"].append(item)
+                            else:
+                                emp["descuentos"].append(item)
 
-    Multiple employee blocks appear stacked vertically.
-    """
-    wb = load_workbook(filepath, data_only=True)
-    results = {"personal": [], "planillas": []}
+                i += 1
 
-    for sheet_name in wb.sheetnames:
-        ws = wb[sheet_name]
-        if not ws.max_row or ws.max_row < 2:
+            empleados.append(emp)
             continue
 
-        merged_map = build_merged_map(ws)
-        mes, anio, detalle_col, monto_col = find_columns(ws)
+        i += 1
 
-        # Refine year from sheet name
-        yr_in_sheet = re.search(r'20\d{2}', str(sheet_name))
-        if yr_in_sheet:
-            anio = int(yr_in_sheet.group())
-
-        # Derive adjacent columns
-        empinfo_col = max(1, detalle_col - 1)
-        seccion_col = max(1, detalle_col - 2)
-        if seccion_col == empinfo_col:
-            seccion_col = 1
-            empinfo_col = 2
-
-        def raw_val(r, c):
-            return ws.cell(r, c).value
-
-        def merged_val(r, c):
-            return merged_map.get((r, c), ws.cell(r, c).value)
-
-        def full_row_text(r):
-            parts = [to_str(merged_val(r, c)) for c in range(1, min(ws.max_column + 1, 20))]
-            return ' '.join(parts).upper()
-
-        current = None     # dict with keys 'personal' and 'planilla'
-        in_section = None  # 'haberes' | 'dsctos'
-
-        for r in range(1, ws.max_row + 1):
-            # Use raw (non-merged) values to detect first-row-of-merge markers
-            raw_sec = to_str(raw_val(r, seccion_col)).upper()
-            raw_emp = to_str(raw_val(r, empinfo_col))
-            raw_det = to_str(raw_val(r, detalle_col))
-            raw_mon = raw_val(r, monto_col)
-
-            row_text = full_row_text(r)
-
-            # ── End-of-block markers ──────────────────────────────────────
-            if 'TOTAL HABERES' in row_text:
-                if current:
-                    results["personal"].append(current["personal"])
-                    results["planillas"].append(current["planilla"])
-                current = None
-                in_section = None
-                continue
-            if 'TOTAL DESCUENTO' in row_text or 'TOTAL LIQUIDO' in row_text:
-                continue
-
-            # ── New HABERES block ─────────────────────────────────────────
-            if raw_sec == 'HABERES':
-                if current:  # close any unclosed previous block
-                    results["personal"].append(current["personal"])
-                    results["planillas"].append(current["planilla"])
-                in_section = 'haberes'
-                current = {
-                    'personal': {
-                        'nombres': raw_emp,
-                        'apellidos': '',
-                        'puesto': '',
-                        'rd': '',
-                        'uu': '',
-                        'dni': '',
-                        'activo': True,
-                    },
-                    'planilla': {
-                        'mes': mes,
-                        'anio': anio,
-                        'nombres': raw_emp,  # for linking when DNI is absent
-                        'dni': '',
-                        'ingresos': [],
-                        'descuentos': [],
-                    },
-                }
-                # First ingreso item may be on the same row as HABERES
-                if raw_det:
-                    m = to_float(raw_mon)
-                    if m > 0:
-                        current['planilla']['ingresos'].append(
-                            {'tipo': raw_det, 'monto': round(m, 2)}
-                        )
-                continue
-
-            # ── DSCTOS block ──────────────────────────────────────────────
-            if ('DSCTO' in raw_sec or 'DESCUENTO' in raw_sec) and current is not None:
-                in_section = 'dsctos'
-                if raw_det:
-                    m = to_float(raw_mon)
-                    if m > 0:
-                        current['planilla']['descuentos'].append(
-                            {'tipo': raw_det, 'monto': round(m, 2)}
-                        )
-                continue
-
-            if current is None:
-                continue
-
-            # ── Employee info in empinfo column ───────────────────────────
-            if raw_emp and in_section == 'haberes' and raw_emp != current['personal']['nombres']:
-                cat, val = classify_emp_info(raw_emp)
-                pers = current['personal']
-                if cat == 'rd' and not pers['rd']:
-                    pers['rd'] = val
-                elif cat == 'uu' and not pers['uu']:
-                    pers['uu'] = val
-                elif cat == 'dni' and not pers['dni']:
-                    pers['dni'] = val
-                    current['planilla']['dni'] = val
-                elif cat == 'puesto' and not pers['puesto']:
-                    pers['puesto'] = val
-
-            # ── Line item (ingreso or descuento) ──────────────────────────
-            if raw_det and in_section:
-                m = to_float(raw_mon)
-                if m > 0:
-                    item = {'tipo': raw_det, 'monto': round(m, 2)}
-                    if in_section == 'haberes':
-                        current['planilla']['ingresos'].append(item)
-                    else:
-                        current['planilla']['descuentos'].append(item)
-
-    return results
+    return empleados
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -285,25 +199,42 @@ def process_excel():
     if not filename.lower().endswith(('.xlsx', '.xls')):
         return jsonify({"error": "Solo se aceptan archivos Excel (.xlsx, .xls)"}), 400
 
+    mes = request.form.get("mes", type=int)
+    anio = request.form.get("anio", type=int)
+
+    if not mes or not anio:
+        return jsonify({"error": "Se requieren los campos mes y anio"}), 400
+    if not (1 <= mes <= 12):
+        return jsonify({"error": "Mes debe estar entre 1 y 12"}), 400
+
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
 
     try:
-        data = parse_excel_planilla(filepath)
+        empleados = extraer_empleados(filepath)
 
-        # Send parsed JSON to Go backend (avoids re-parsing on the Go side)
+        payload = {
+            "mes": mes,
+            "anio": anio,
+            "total_empleados": len(empleados),
+            "empleados": empleados,
+        }
+
         response = requests.post(
-            f"{BACKEND_URL}/api/importar/json",
-            json=data,
+            f"{BACKEND_URL}/api/importar/haberes",
+            json=payload,
             timeout=60,
         )
 
         if response.status_code == 200:
+            resp_data = response.json()
             return jsonify({
                 "message": "Excel procesado correctamente",
-                "personal_count": len(data["personal"]),
-                "planillas_count": len(data["planillas"]),
-                "backend_response": response.json(),
+                "personal_creados": resp_data.get("personal_creados", 0),
+                "planillas_creadas": resp_data.get("planillas_creadas", 0),
+                "personal": len(empleados),
+                "planillas": len(empleados),
+                "errores": resp_data.get("errores", []),
             })
         else:
             return jsonify({
@@ -335,15 +266,11 @@ def validate_excel():
     file.save(filepath)
 
     try:
-        data = parse_excel_planilla(filepath)
+        empleados = extraer_empleados(filepath)
         return jsonify({
             "valid": True,
-            "personal_count": len(data["personal"]),
-            "planillas_count": len(data["planillas"]),
-            "preview": {
-                "personal": data["personal"][:5],
-                "planillas": data["planillas"][:5],
-            },
+            "total_empleados": len(empleados),
+            "preview": empleados[:5],
         })
     except Exception as e:
         return jsonify({"valid": False, "error": str(e)}), 400

@@ -112,6 +112,7 @@ func main() {
 		{
 			importar.POST("/excel", handlers.ImportarExcel)
 			importar.POST("/json", handlers.ImportarJSON)
+			importar.POST("/haberes", handlers.ImportarHaberes)
 		}
 
 		dashboard := api.Group("/dashboard")

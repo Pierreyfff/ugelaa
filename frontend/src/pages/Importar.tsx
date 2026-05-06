@@ -9,7 +9,7 @@ const MESES = [
 ]
 
 const currentYear = new Date().getFullYear()
-const ANIOS = Array.from({ length: 8 }, (_, i) => currentYear - 3 + i)
+const ANIOS = Array.from({ length: currentYear - 1989 }, (_, i) => 1990 + i).reverse()
 
 export default function Importar() {
   const [file, setFile] = useState<File | null>(null)
@@ -55,10 +55,7 @@ export default function Importar() {
       formData.append('mes', String(mes))
       formData.append('anio', String(anio))
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/importar/excel`,
-        { method: 'POST', body: formData }
-      )
+      const response = await fetch('/python/process-excel', { method: 'POST', body: formData })
 
       const data = await response.json()
       if (response.ok) {

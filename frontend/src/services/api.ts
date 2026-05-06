@@ -42,12 +42,13 @@ export const dashboardApi = {
 }
 
 export const importarApi = {
-  excel: (file: File) => {
+  excel: (file: File, mes: number, anio: number) => {
     const formData = new FormData()
     formData.append('file', file)
-    return api.post('/api/importar/excel', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    formData.append('mes', String(mes))
+    formData.append('anio', String(anio))
+    return fetch('/python/process-excel', { method: 'POST', body: formData })
+      .then(r => r.json())
   },
 }
 

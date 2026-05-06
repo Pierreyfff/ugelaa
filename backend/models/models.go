@@ -82,3 +82,30 @@ type DescuentoImport struct {
 	Tipo  string  `json:"tipo"`
 	Monto float64 `json:"monto"`
 }
+
+// ── New format from Python extractor (extractor_haberes) ─────────────────────
+
+type HaberesPayload struct {
+	Mes            *int            `json:"mes"`
+	Anio           *int            `json:"anio"`
+	TotalEmpleados int             `json:"total_empleados"`
+	Empleados      []EmpleadoHaber `json:"empleados"`
+}
+
+type EmpleadoHaber struct {
+	Nombre          string         `json:"nombre"`
+	Cargo           *string        `json:"cargo"`
+	Resolucion      *string        `json:"resolucion"`
+	Codigo          *string        `json:"codigo"`
+	DNI             *string        `json:"dni"`
+	Haberes         []ConceptoItem `json:"haberes"`
+	Descuentos      []ConceptoItem `json:"descuentos"`
+	TotalHaberes    *float64       `json:"total_haberes"`
+	TotalDescuentos *float64       `json:"total_descuentos"`
+	TotalLiquido    *float64       `json:"total_liquido"`
+}
+
+type ConceptoItem struct {
+	Concepto string  `json:"concepto"`
+	Monto    float64 `json:"monto"`
+}

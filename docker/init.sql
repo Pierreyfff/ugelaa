@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS planilla (
     id SERIAL PRIMARY KEY,
     personal_id INT NOT NULL REFERENCES personal(id),
     mes SMALLINT NOT NULL CHECK (mes BETWEEN 1 AND 12),
-    anio SMALLINT NOT NULL CHECK (anio >= 2000),
+    anio SMALLINT NOT NULL CHECK (anio >= 1900),
     total_haberes NUMERIC(12,2) NOT NULL DEFAULT 0,
     total_descuentos NUMERIC(12,2) NOT NULL DEFAULT 0,
     total_liquido NUMERIC(12,2) GENERATED ALWAYS AS (total_haberes - total_descuentos) STORED,
@@ -66,13 +66,15 @@ CREATE INDEX IF NOT EXISTS idx_personal_nombre ON personal(apellidos, nombres);
 -- Trigger para actualizar total_haberes en ingresos
 CREATE OR REPLACE FUNCTION update_planilla_haberes()
 RETURNS TRIGGER AS $$
+DECLARE pid INT;
 BEGIN
+    IF TG_OP = 'DELETE' THEN pid := OLD.planilla_id; ELSE pid := NEW.planilla_id; END IF;
     UPDATE planilla
     SET total_haberes = COALESCE(
-        (SELECT SUM(monto) FROM ingresos WHERE planilla_id = NEW.planilla_id), 0
+        (SELECT SUM(monto) FROM ingresos WHERE planilla_id = pid), 0
     )
-    WHERE id = NEW.planilla_id;
-    RETURN NEW;
+    WHERE id = pid;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -83,13 +85,15 @@ FOR EACH ROW EXECUTE FUNCTION update_planilla_haberes();
 -- Trigger para actualizar total_descuentos en descuentos
 CREATE OR REPLACE FUNCTION update_planilla_descuentos()
 RETURNS TRIGGER AS $$
+DECLARE pid INT;
 BEGIN
+    IF TG_OP = 'DELETE' THEN pid := OLD.planilla_id; ELSE pid := NEW.planilla_id; END IF;
     UPDATE planilla
     SET total_descuentos = COALESCE(
-        (SELECT SUM(monto) FROM descuentos WHERE planilla_id = NEW.planilla_id), 0
+        (SELECT SUM(monto) FROM descuentos WHERE planilla_id = pid), 0
     )
-    WHERE id = NEW.planilla_id;
-    RETURN NEW;
+    WHERE id = pid;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
 END;
 $$ LANGUAGE plpgsql;
 

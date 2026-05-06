@@ -569,6 +569,140 @@ func ImportarJSON(c *gin.Context) {
 	})
 }
 
+// ImportarHaberes handles the JSON payload produced by the Python extractor.
+// Format: { mes, anio, total_empleados, empleados: [{nombre, cargo, resolucion, codigo, dni, haberes:[{concepto,monto}], descuentos:[{concepto,monto}], ...}] }
+func ImportarHaberes(c *gin.Context) {
+	db := getDB(c)
+
+	var payload models.HaberesPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "JSON inválido: " + err.Error()})
+		return
+	}
+
+	if payload.Mes == nil || payload.Anio == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Se requieren los campos mes y anio"})
+		return
+	}
+
+	mes := *payload.Mes
+	anio := *payload.Anio
+
+	if mes < 1 || mes > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Mes inválido (debe ser 1-12)"})
+		return
+	}
+
+	personalCreados := 0
+	planillasCreadas := 0
+	var warnings []string
+
+	for _, emp := range payload.Empleados {
+		var personal models.Personal
+		found := false
+
+		// Lookup by DNI first, then by name
+		if emp.DNI != nil && *emp.DNI != "" {
+			if err := db.Where("dni = ?", *emp.DNI).First(&personal).Error; err == nil {
+				found = true
+			}
+		}
+		if !found && emp.Nombre != "" {
+			if err := db.Where("nombres = ?", emp.Nombre).First(&personal).Error; err == nil {
+				found = true
+			}
+		}
+
+		if !found {
+			if emp.Nombre == "" {
+				warnings = append(warnings, "Empleado ignorado: sin nombre ni DNI")
+				continue
+			}
+			personal = models.Personal{
+				Nombres:   emp.Nombre,
+				Apellidos: "",
+				Activo:    true,
+				CreatedAt: time.Now(),
+			}
+			if emp.DNI != nil {
+				personal.DNI = *emp.DNI
+			}
+			if emp.Cargo != nil {
+				personal.Puesto = *emp.Cargo
+			}
+			if emp.Resolucion != nil {
+				personal.RD = *emp.Resolucion
+			}
+			if emp.Codigo != nil {
+				personal.UU = *emp.Codigo
+			}
+			if err := db.Create(&personal).Error; err != nil {
+				warnings = append(warnings, fmt.Sprintf("No se pudo crear '%s': %v", emp.Nombre, err))
+				continue
+			}
+			personalCreados++
+		} else {
+			// Fill in any missing fields
+			updates := map[string]interface{}{}
+			if personal.DNI == "" && emp.DNI != nil && *emp.DNI != "" {
+				updates["dni"] = *emp.DNI
+			}
+			if personal.Puesto == "" && emp.Cargo != nil && *emp.Cargo != "" {
+				updates["puesto"] = *emp.Cargo
+			}
+			if personal.RD == "" && emp.Resolucion != nil && *emp.Resolucion != "" {
+				updates["rd"] = *emp.Resolucion
+			}
+			if personal.UU == "" && emp.Codigo != nil && *emp.Codigo != "" {
+				updates["uu"] = *emp.Codigo
+			}
+			if len(updates) > 0 {
+				db.Model(&personal).Updates(updates)
+			}
+		}
+
+		// Find or create planilla for this period
+		var planilla models.Planilla
+		db.Where("personal_id = ? AND mes = ? AND anio = ?", personal.ID, mes, anio).First(&planilla)
+
+		if planilla.ID == 0 {
+			planilla = models.Planilla{
+				PersonalID: personal.ID,
+				Mes:        int16(mes),
+				Anio:       int16(anio),
+				CreadoEn:   time.Now(),
+			}
+			if err := db.Create(&planilla).Error; err != nil {
+				warnings = append(warnings, fmt.Sprintf("Error al crear planilla para '%s': %v", emp.Nombre, err))
+				continue
+			}
+			planillasCreadas++
+		}
+
+		// Insert haberes (ingresos)
+		for _, h := range emp.Haberes {
+			if err := db.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: h.Concepto, Monto: h.Monto}).Error; err != nil {
+				warnings = append(warnings, fmt.Sprintf("Error al insertar ingreso '%s' para '%s': %v", h.Concepto, emp.Nombre, err))
+			}
+		}
+		// Insert descuentos
+		for _, d := range emp.Descuentos {
+			if err := db.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: d.Concepto, Monto: d.Monto}).Error; err != nil {
+				warnings = append(warnings, fmt.Sprintf("Error al insertar descuento '%s' para '%s': %v", d.Concepto, emp.Nombre, err))
+			}
+		}
+		// Totals are maintained by DB triggers automatically
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":           "Importación completada",
+		"personal_creados":  personalCreados,
+		"planillas_creadas": planillasCreadas,
+		"total_empleados":   len(payload.Empleados),
+		"errores":           warnings,
+	})
+}
+
 func ResumenDashboard(c *gin.Context) {
 	db := getDB(c)
 
