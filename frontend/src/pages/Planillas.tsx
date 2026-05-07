@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { planillasApi, personalApi } from '../services/api'
-import { Plus, Trash2, X, Eye, FileSpreadsheet, DollarSign, ArrowDownToLine, ArrowUpFromLine, User, Calendar } from 'lucide-react'
+import { Plus, Trash2, X, Eye, FileSpreadsheet, DollarSign, ArrowDownToLine, ArrowUpFromLine, User, Calendar, Filter, Download } from 'lucide-react'
 
 interface Personal {
   id: number
   dni: string
   nombres: string
   apellidos: string
+  puesto?: string
 }
 
 interface Planilla {
@@ -33,6 +34,7 @@ interface Descuento {
 }
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+const ANIOS = Array.from({ length: new Date().getFullYear() - 1990 }, (_, i) => 1991 + i).reverse()
 
 export default function Planillas() {
   const [planillas, setPlanillas] = useState<Planilla[]>([])
@@ -67,22 +69,22 @@ export default function Planillas() {
     setError(null)
 
     if (!form.personal_id) {
-      setError('Debe seleccionar un empleado')
+      setError('Selecciona un empleado')
       return
     }
 
     try {
       await planillasApi.create(form)
       setShowModal(false)
-      setForm({ personal_id: 0, mes: mes, anio: anio })
+      setForm({ personal_id: 0, mes, anio })
       loadData()
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al crear planilla')
+      setError(err.response?.data?.error || 'Error al crear')
     }
   }
 
   const handleDelete = async (id: number) => {
-    if (confirm('¿Eliminar esta planilla? Esta acción no se puede deshacer.')) {
+    if (confirm('¿Eliminar esta planilla?')) {
       await planillasApi.delete(id)
       loadData()
     }
@@ -140,125 +142,180 @@ export default function Planillas() {
   const totalDescuentos = planillas.reduce((acc, p) => acc + p.total_descuentos, 0)
   const totalLiquido = planillas.reduce((acc, p) => acc + p.total_liquido, 0)
 
+  const currentPeriod = `${MESES[mes - 1]} ${anio}`
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-slate-900">Planillas</h2>
-          <p className="text-slate-500">Gestión de nóminas mensuales</p>
+          <div className="flex items-center gap-2 mb-1">
+            <FileSpreadsheet className="w-5 h-5 text-cyan-500" />
+            <span className="text-sm font-medium text-cyan-600">Gestión de Nóminas</span>
+          </div>
+          <h2 className="page-title">Planillas</h2>
+          <p className="text-slate-500 mt-1">Administra las nóminas de tu personal</p>
         </div>
         <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
-          <Plus className="w-5 h-5" /> Nueva Planilla
+          <Plus className="w-4 h-4" /> Nueva Planilla
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div className="card bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-xl shadow-emerald-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-white/80 text-sm font-medium">Total Haberes</p>
-              <p className="text-3xl font-bold">{formatCurrency(totalHaberes)}</p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-600 rounded-2xl p-5 text-white shadow-lg shadow-emerald-500/20">
+          <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/10 rounded-full"></div>
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-emerald-100 text-xs font-semibold uppercase tracking-wider">Total Haberes</span>
+              <div className="p-2 bg-white/20 rounded-xl">
+                <ArrowDownToLine className="w-5 h-5" />
+              </div>
             </div>
-            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
-              <ArrowDownToLine className="w-7 h-7" />
-            </div>
-          </div>
-        </div>
-        <div className="card bg-gradient-to-br from-rose-400 to-red-500 text-white shadow-xl shadow-rose-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-white/80 text-sm font-medium">Total Descuentos</p>
-              <p className="text-3xl font-bold">{formatCurrency(totalDescuentos)}</p>
-            </div>
-            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
-              <ArrowUpFromLine className="w-7 h-7" />
+            <p className="text-3xl font-bold tracking-tight">{formatCurrency(totalHaberes)}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="inline-flex items-center px-2.5 py-1 bg-white/20 rounded-lg text-xs font-medium">
+                {planillas.length} planillas
+              </span>
             </div>
           </div>
         </div>
-        <div className="card bg-gradient-to-br from-sky-400 via-blue-500 to-cyan-500 text-white shadow-xl shadow-sky-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-white/80 text-sm font-medium">Total Líquido</p>
-              <p className="text-3xl font-bold">{formatCurrency(totalLiquido)}</p>
+
+        <div className="relative overflow-hidden bg-gradient-to-br from-rose-500 via-red-500 to-orange-500 rounded-2xl p-5 text-white shadow-lg shadow-rose-500/20">
+          <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/10 rounded-full"></div>
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-rose-100 text-xs font-semibold uppercase tracking-wider">Total Descuentos</span>
+              <div className="p-2 bg-white/20 rounded-xl">
+                <ArrowUpFromLine className="w-5 h-5" />
+              </div>
             </div>
-            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
-              <DollarSign className="w-7 h-7" />
+            <p className="text-3xl font-bold tracking-tight">{formatCurrency(totalDescuentos)}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="inline-flex items-center px-2.5 py-1 bg-white/20 rounded-lg text-xs font-medium">
+                DL20530, AFP, Otros
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden bg-gradient-to-br from-cyan-500 via-blue-500 to-indigo-600 rounded-2xl p-5 text-white shadow-lg shadow-blue-500/20">
+          <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/10 rounded-full"></div>
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-cyan-100 text-xs font-semibold uppercase tracking-wider">Pago Líquido</span>
+              <div className="p-2 bg-white/20 rounded-xl">
+                <DollarSign className="w-5 h-5" />
+              </div>
+            </div>
+            <p className="text-3xl font-bold tracking-tight">{formatCurrency(totalLiquido)}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="inline-flex items-center px-2.5 py-1 bg-white/20 rounded-lg text-xs font-medium">
+                Total a pagar
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="flex items-center justify-between mb-6">
+      <div className="section-card">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-4">
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-sky-500" />
-              <select className="input pl-10 w-44" value={mes} onChange={e => setMes(Number(e.target.value))}>
+            <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-1">
+              <select 
+                className="input py-1.5 px-2 w-28 bg-transparent border-0 text-sm" 
+                value={mes} 
+                onChange={e => setMes(Number(e.target.value))}
+              >
                 {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
               </select>
+              <select 
+                className="input py-1.5 px-2 w-20 bg-transparent border-0 text-sm" 
+                value={anio} 
+                onChange={e => setAnio(Number(e.target.value))}
+              >
+                {ANIOS.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
             </div>
-            <select className="input w-32" value={anio} onChange={e => setAnio(Number(e.target.value))}>
-              {[2024, 2025, 2026, 2027].map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <span className="count-badge text-xs py-1.5 px-3">{planillas.length} regs</span>
           </div>
-          <span className="bg-gradient-to-r from-sky-500 to-blue-500 text-white px-5 py-2 rounded-xl font-bold shadow-lg shadow-sky-500/30">
-            {planillas.length} planillas
-          </span>
+          <div className="flex items-center gap-2">
+            <button className="btn-secondary flex items-center gap-2 py-2.5 px-4">
+              <Filter className="w-4 h-4" /> Filtrar
+            </button>
+            <button className="btn-secondary flex items-center gap-2 py-2.5 px-4">
+              <Download className="w-4 h-4" /> Exportar
+            </button>
+          </div>
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-16">
-            <div className="w-12 h-12 border-4 border-sky-200 border-t-sky-500 rounded-full animate-spin"></div>
+          <div className="flex justify-center py-20">
+            <div className="spinner"></div>
           </div>
         ) : planillas.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="w-16 h-16 bg-gradient-to-br from-sky-100 to-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <FileSpreadsheet className="w-8 h-8 text-sky-400" />
+          <div className="empty-state">
+            <div className="empty-state-icon">
+              <FileSpreadsheet className="w-7 h-7 text-cyan-500" />
             </div>
-            <p className="text-slate-500 mb-4">No hay planillas para {MESES[mes-1]} {anio}</p>
-            <button onClick={() => setShowModal(true)} className="btn-primary">
-              Crear Primera Planilla
-            </button>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">Sin planillas</h3>
+            <p className="text-slate-500 mb-5">No hay planillas registradas para {currentPeriod}</p>
+            <button onClick={() => setShowModal(true)} className="btn-primary">Crear Planilla</button>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border-2 border-sky-100">
-            <table className="w-full">
+          <div className="table-container">
+            <table className="data-table">
               <thead>
-                <tr className="table-header">
-                  <th className="px-5 py-4">Empleado</th>
-                  <th className="px-5 py-4">DNI</th>
-                  <th className="px-5 py-4 text-right">Haberes</th>
-                  <th className="px-5 py-4 text-right">Descuentos</th>
-                  <th className="px-5 py-4 text-right">Líquido</th>
-                  <th className="px-5 py-4 text-right">Acciones</th>
+                <tr>
+                  <th className="rounded-tl-xl">Empleado</th>
+                  <th>DNI</th>
+                  <th className="text-right">Haberes</th>
+                  <th className="text-right">Descuentos</th>
+                  <th className="text-right">Líquido</th>
+                  <th className="text-center rounded-tr-xl">Acción</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-sky-100">
+              <tbody>
                 {planillas.map(p => (
-                  <tr key={p.id} className="table-row">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
+                  <tr key={p.id}>
+                    <td>
+                      <div className="flex items-center gap-2">
                         <div className="avatar avatar-blue">
                           {p.personal?.nombres?.charAt(0) || '?'}
                         </div>
-                        <p className="font-bold text-slate-800">{p.personal?.apellidos} {p.personal?.nombres}</p>
+                        <div>
+                          <p className="font-medium text-slate-800 text-xs">{p.personal?.apellidos} {p.personal?.nombres}</p>
+                          <p className="text-[10px] text-slate-500">{p.personal?.puesto || '-'}</p>
+                        </div>
                       </div>
                     </td>
-                    <td className="px-5 py-4 font-mono text-sm text-slate-500">{p.personal?.dni || '—'}</td>
-                    <td className="px-5 py-4 text-right text-emerald-600 font-bold">{formatCurrency(p.total_haberes)}</td>
-                    <td className="px-5 py-4 text-right text-rose-600 font-bold">{formatCurrency(p.total_descuentos)}</td>
-                    <td className="px-5 py-4 text-right">
-                      <span className="px-4 py-2 bg-gradient-to-r from-sky-500 to-blue-500 text-white rounded-xl font-bold text-sm shadow-lg shadow-sky-500/30">
+                    <td>
+                      <span className="font-mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-600">{p.personal?.dni || '-'}</span>
+                    </td>
+                    <td className="text-right">
+                      <span className="font-medium text-emerald-600 text-xs">{formatCurrency(p.total_haberes)}</span>
+                    </td>
+                    <td className="text-right">
+                      <span className="font-medium text-red-500 text-xs">{formatCurrency(p.total_descuentos)}</span>
+                    </td>
+                    <td className="text-right">
+                      <span className="inline-flex items-center px-2 py-1 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-semibold text-xs">
                         {formatCurrency(p.total_liquido)}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => viewDetail(p.id)} className="btn-icon text-sky-600 hover:bg-sky-50" title="Ver detalles">
-                          <Eye className="w-4 h-4" />
+                    <td>
+                      <div className="flex items-center justify-center gap-1">
+                        <button 
+                          onClick={() => viewDetail(p.id)} 
+                          className="p-1.5 rounded-lg hover:bg-cyan-50 text-cyan-600 transition-all" 
+                          title="Ver detalles"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => handleDelete(p.id)} className="btn-icon text-rose-600 hover:bg-rose-50" title="Eliminar">
-                          <Trash2 className="w-4 h-4" />
+                        <button 
+                          onClick={() => handleDelete(p.id)} 
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-all" 
+                          title="Eliminar"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>
@@ -273,7 +330,7 @@ export default function Planillas() {
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-5 border-b border-sky-100 bg-gradient-to-r from-sky-500 via-blue-500 to-cyan-500">
+            <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-cyan-500 to-blue-600">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
@@ -281,34 +338,31 @@ export default function Planillas() {
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-white">Nueva Planilla</h3>
-                    <p className="text-white/70 text-xs">Crea una planilla para un empleado</p>
+                    <p className="text-white/70 text-xs">Selecciona el empleado</p>
                   </div>
                 </div>
-                <button onClick={() => setShowModal(false)} className="text-white/80 hover:text-white p-2">
-                  <X className="w-6 h-6" />
+                <button onClick={() => setShowModal(false)} className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10">
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
             <form onSubmit={handleCreate} className="p-6 space-y-5">
               {error && (
-                <div className="p-4 bg-rose-50 border-2 border-rose-200 rounded-xl flex items-center gap-3">
-                  <div className="w-8 h-8 bg-rose-100 rounded-lg flex items-center justify-center">
-                    <X className="w-4 h-4 text-rose-600" />
-                  </div>
-                  <span className="text-rose-700 font-medium">{error}</span>
+                <div className="alert-error">
+                  <X className="w-4 h-4" />
+                  <span className="text-sm">{error}</span>
                 </div>
               )}
 
               <div>
                 <label className="label flex items-center gap-2">
-                  <User className="w-4 h-4 text-sky-500" /> Empleado *
+                  <User className="w-4 h-4 text-cyan-500" /> Empleado *
                 </label>
                 <select
                   className="input"
                   value={form.personal_id}
                   onChange={e => setForm({ ...form, personal_id: Number(e.target.value) })}
-                  required
                 >
                   <option value={0}>Seleccionar empleado...</option>
                   {personal.map(p => (
@@ -317,13 +371,12 @@ export default function Planillas() {
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-slate-400 mt-1">Solo muestra empleados activos</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="form-grid form-grid-2">
                 <div>
                   <label className="label flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-sky-500" /> Mes *
+                    <Calendar className="w-4 h-4 text-cyan-500" /> Mes *
                   </label>
                   <select className="input" value={form.mes} onChange={e => setForm({ ...form, mes: Number(e.target.value) })}>
                     {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
@@ -331,21 +384,19 @@ export default function Planillas() {
                 </div>
                 <div>
                   <label className="label flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-sky-500" /> Año *
+                    <Calendar className="w-4 h-4 text-cyan-500" /> Año *
                   </label>
                   <select className="input" value={form.anio} onChange={e => setForm({ ...form, anio: Number(e.target.value) })}>
-                    {[2024, 2025, 2026, 2027].map(a => <option key={a} value={a}>{a}</option>)}
+                    {ANIOS.map(a => <option key={a} value={a}>{a}</option>)}
                   </select>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4">
+              <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">
                   Cancelar
                 </button>
-                <button type="submit" className="btn-primary">
-                  Crear Planilla
-                </button>
+                <button type="submit" className="btn-primary">Crear Planilla</button>
               </div>
             </form>
           </div>
@@ -354,57 +405,57 @@ export default function Planillas() {
 
       {showDetail && detailPlanilla && (
         <div className="modal-overlay" onClick={() => setShowDetail(false)}>
-          <div className="modal-content max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-5 border-b border-sky-100 bg-gradient-to-r from-sky-500 via-blue-500 to-cyan-500 sticky top-0">
+          <div className="modal-content w-[95vw] max-w-4xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 bg-gradient-to-r from-slate-800 to-slate-900">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="avatar bg-white/20 text-white">
+                  <div className="w-10 h-10 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-xl flex items-center justify-center text-white font-bold shadow-lg">
                     {detailPlanilla.personal?.nombres?.charAt(0) || '?'}
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white">
+                    <h3 className="text-base font-bold text-white">
                       {detailPlanilla.personal?.apellidos} {detailPlanilla.personal?.nombres}
                     </h3>
-                    <p className="text-white/80 text-sm">{MESES[detailPlanilla.mes - 1]} {detailPlanilla.anio}</p>
+                    <p className="text-slate-400 text-xs">{detailPlanilla.personal?.puesto || '-'} | {MESES[detailPlanilla.mes - 1]} {detailPlanilla.anio}</p>
                   </div>
                 </div>
-                <button onClick={() => setShowDetail(false)} className="text-white/80 hover:text-white p-2">
-                  <X className="w-6 h-6" />
+                <button onClick={() => setShowDetail(false)} className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/10">
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            <div className="p-6">
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-gradient-to-br from-emerald-50 to-green-50 p-5 rounded-2xl border-2 border-emerald-100 text-center">
-                  <p className="text-sm text-emerald-600 font-medium mb-1">Total Haberes</p>
-                  <p className="text-2xl font-bold text-emerald-700">{formatCurrency(detailPlanilla.total_haberes)}</p>
+            <div className="p-4 overflow-y-auto flex-1">
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-xl p-3 text-white">
+                  <p className="text-emerald-100 text-[10px] uppercase font-semibold">Haberes</p>
+                  <p className="text-lg font-bold">{formatCurrency(detailPlanilla.total_haberes)}</p>
                 </div>
-                <div className="bg-gradient-to-br from-rose-50 to-red-50 p-5 rounded-2xl border-2 border-rose-100 text-center">
-                  <p className="text-sm text-rose-600 font-medium mb-1">Total Descuentos</p>
-                  <p className="text-2xl font-bold text-rose-700">{formatCurrency(detailPlanilla.total_descuentos)}</p>
+                <div className="bg-gradient-to-br from-rose-400 to-red-600 rounded-xl p-3 text-white">
+                  <p className="text-rose-100 text-[10px] uppercase font-semibold">Descuentos</p>
+                  <p className="text-lg font-bold">{formatCurrency(detailPlanilla.total_descuentos)}</p>
                 </div>
-                <div className="bg-gradient-to-br from-sky-50 to-blue-50 p-5 rounded-2xl border-2 border-sky-100 text-center">
-                  <p className="text-sm text-sky-600 font-medium mb-1">Líquido</p>
-                  <p className="text-2xl font-bold text-sky-700">{formatCurrency(detailPlanilla.total_liquido)}</p>
+                <div className="bg-gradient-to-br from-cyan-400 to-blue-600 rounded-xl p-3 text-white">
+                  <p className="text-cyan-100 text-[10px] uppercase font-semibold">Líquido</p>
+                  <p className="text-lg font-bold">{formatCurrency(detailPlanilla.total_liquido)}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <h4 className="font-bold text-emerald-700 flex items-center gap-2">
-                    <ArrowDownToLine className="w-5 h-5" /> Ingresos
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+                  <h4 className="font-bold text-emerald-600 text-xs flex items-center gap-1 mb-3 pb-2 border-b border-emerald-100">
+                    <ArrowDownToLine className="w-3 h-3" /> Ingresos
                   </h4>
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
                     {detailPlanilla.ingresos?.length === 0 ? (
-                      <p className="text-slate-400 text-sm text-center py-4">No hay ingresos registrados</p>
+                      <p className="text-slate-400 text-xs text-center py-4">Sin ingresos</p>
                     ) : (
                       detailPlanilla.ingresos?.map((i: Ingreso) => (
-                        <div key={i.id} className="list-item list-item-income">
-                          <span className="text-slate-700 font-medium">{i.tipo}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-emerald-700">{formatCurrency(i.monto)}</span>
-                            <button onClick={() => deleteIngreso(i.id)} className="text-rose-400 hover:text-rose-600 p-1">
+                        <div key={i.id} className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                          <span className="text-slate-700 text-xs">{i.tipo}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="font-bold text-emerald-700 text-xs">{formatCurrency(i.monto)}</span>
+                            <button onClick={() => deleteIngreso(i.id)} className="p-1 rounded hover:bg-red-100 text-red-400">
                               <Trash2 className="w-3 h-3" />
                             </button>
                           </div>
@@ -412,45 +463,45 @@ export default function Planillas() {
                       ))
                     )}
                   </div>
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex gap-1 mt-2 pt-2 border-t border-slate-100">
                     <input
                       type="text"
                       placeholder="Concepto"
-                      className="flex-1 px-3 py-2 text-sm border-2 border-slate-200 rounded-lg focus:border-sky-400 focus:ring-0"
+                      className="input text-xs py-1 flex-1"
                       value={ingresoForm.tipo}
                       onChange={e => setIngresoForm({ ...ingresoForm, tipo: e.target.value })}
                     />
                     <input
                       type="number"
-                      placeholder="Monto"
-                      className="w-24 px-3 py-2 text-sm border-2 border-slate-200 rounded-lg focus:border-sky-400 focus:ring-0"
+                      placeholder="S/"
+                      className="input text-xs py-1 w-16"
                       value={ingresoForm.monto}
                       onChange={e => setIngresoForm({ ...ingresoForm, monto: e.target.value })}
                     />
                     <button
                       onClick={addIngreso}
                       disabled={!ingresoForm.tipo || !ingresoForm.monto}
-                      className="btn-primary px-4 text-sm disabled:opacity-50"
+                      className="px-2 bg-emerald-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50"
                     >
                       +
                     </button>
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  <h4 className="font-bold text-rose-700 flex items-center gap-2">
-                    <ArrowUpFromLine className="w-5 h-5" /> Descuentos
+                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+                  <h4 className="font-bold text-red-600 text-xs flex items-center gap-1 mb-3 pb-2 border-b border-red-100">
+                    <ArrowUpFromLine className="w-3 h-3" /> Descuentos
                   </h4>
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
                     {detailPlanilla.descuentos?.length === 0 ? (
-                      <p className="text-slate-400 text-sm text-center py-4">No hay descuentos registrados</p>
+                      <p className="text-slate-400 text-xs text-center py-4">Sin descuentos</p>
                     ) : (
                       detailPlanilla.descuentos?.map((d: Descuento) => (
-                        <div key={d.id} className="list-item list-item-expense">
-                          <span className="text-slate-700 font-medium">{d.tipo}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-rose-700">{formatCurrency(d.monto)}</span>
-                            <button onClick={() => deleteDescuento(d.id)} className="text-rose-400 hover:text-rose-600 p-1">
+                        <div key={d.id} className="flex items-center justify-between p-2 bg-red-50 rounded-lg border border-red-100">
+                          <span className="text-slate-700 text-xs">{d.tipo}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="font-bold text-red-700 text-xs">{formatCurrency(d.monto)}</span>
+                            <button onClick={() => deleteDescuento(d.id)} className="p-1 rounded hover:bg-red-200 text-red-400">
                               <Trash2 className="w-3 h-3" />
                             </button>
                           </div>
@@ -458,25 +509,25 @@ export default function Planillas() {
                       ))
                     )}
                   </div>
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex gap-1 mt-2 pt-2 border-t border-slate-100">
                     <input
                       type="text"
                       placeholder="Concepto"
-                      className="flex-1 px-3 py-2 text-sm border-2 border-slate-200 rounded-lg focus:border-sky-400 focus:ring-0"
+                      className="input text-xs py-1 flex-1"
                       value={descuentoForm.tipo}
                       onChange={e => setDescuentoForm({ ...descuentoForm, tipo: e.target.value })}
                     />
                     <input
                       type="number"
-                      placeholder="Monto"
-                      className="w-24 px-3 py-2 text-sm border-2 border-slate-200 rounded-lg focus:border-sky-400 focus:ring-0"
+                      placeholder="S/"
+                      className="input text-xs py-1 w-16"
                       value={descuentoForm.monto}
                       onChange={e => setDescuentoForm({ ...descuentoForm, monto: e.target.value })}
                     />
                     <button
                       onClick={addDescuento}
                       disabled={!descuentoForm.tipo || !descuentoForm.monto}
-                      className="btn-primary px-4 text-sm disabled:opacity-50"
+                      className="px-2 bg-red-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50"
                     >
                       +
                     </button>

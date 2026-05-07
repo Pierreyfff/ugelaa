@@ -1,5 +1,5 @@
 ﻿import { useState, useRef } from 'react'
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, Calendar, Users, LayoutList } from 'lucide-react'
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, Calendar, Users, LayoutList, FileType, ArrowRight, HelpCircle } from 'lucide-react'
 
 const MESES = [
   { v: 1, l: 'Enero' }, { v: 2, l: 'Febrero' }, { v: 3, l: 'Marzo' },
@@ -28,7 +28,7 @@ export default function Importar() {
 
   const acceptFile = (f: File) => {
     if (!f.name.match(/\.(xlsx|xls)$/i)) {
-      setError('Solo se permiten archivos Excel (.xlsx, .xls)')
+      setError('Solo archivos Excel (.xlsx, .xls)')
       return
     }
     setFile(f)
@@ -61,10 +61,10 @@ export default function Importar() {
       if (response.ok) {
         setResult(data)
       } else {
-        setError(data.error || `Error ${response.status}: ${response.statusText}`)
+        setError(data.error || `Error ${response.status}`)
       }
     } catch (err) {
-      setError('Error de conexiÃ³n con el servidor')
+      setError('Error de conexión')
     } finally {
       setUploading(false)
     }
@@ -82,33 +82,33 @@ export default function Importar() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold text-slate-900">Importar Planilla</h2>
-        <p className="text-slate-500">Carga el Excel mensual de planillas en formato de bloques verticales</p>
+        <div className="flex items-center gap-2 mb-1">
+          <Upload className="w-5 h-5 text-cyan-500" />
+          <span className="text-sm font-medium text-cyan-600">Importación de Datos</span>
+        </div>
+        <h2 className="page-title">Importar Planilla</h2>
+        <p className="text-slate-500 mt-1">Carga archivos Excel para importar nóminas masivamente</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* â”€â”€ Panel principal â”€â”€ */}
         <div className="lg:col-span-2 space-y-5">
-
-          {/* PerÃ­odo */}
-          <div className="card">
+          <div className="section-card">
             <div className="flex items-center gap-3 mb-5">
-              <div className="w-10 h-10 bg-gradient-to-br from-violet-400 to-purple-500 rounded-xl flex items-center justify-center shadow-md shadow-violet-500/30">
+              <div className="p-2.5 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl">
                 <Calendar className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900">1. Seleccionar PerÃ­odo</h3>
-                <p className="text-xs text-slate-500">Mes y aÃ±o que corresponde la planilla</p>
+                <h3 className="text-base font-bold text-slate-900">1. Seleccionar Período</h3>
+                <p className="text-xs text-slate-500">Mes y año de la planilla</p>
               </div>
             </div>
             <div className="flex gap-4">
               <div className="flex-1">
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Mes</label>
+                <label className="block text-sm font-medium text-slate-600 mb-2">Mes</label>
                 <select
                   value={mes}
                   onChange={e => setMes(Number(e.target.value))}
-                  className="w-full border-2 border-slate-200 rounded-xl px-3 py-2.5 text-slate-800 font-medium focus:outline-none focus:border-violet-400 transition-colors"
+                  className="input"
                 >
                   {MESES.map(m => (
                     <option key={m.v} value={m.v}>{m.l}</option>
@@ -116,11 +116,11 @@ export default function Importar() {
                 </select>
               </div>
               <div className="flex-1">
-                <label className="block text-xs font-semibold text-slate-600 mb-1">AÃ±o</label>
+                <label className="block text-sm font-medium text-slate-600 mb-2">Año</label>
                 <select
                   value={anio}
                   onChange={e => setAnio(Number(e.target.value))}
-                  className="w-full border-2 border-slate-200 rounded-xl px-3 py-2.5 text-slate-800 font-medium focus:outline-none focus:border-violet-400 transition-colors"
+                  className="input"
                 >
                   {ANIOS.map(y => (
                     <option key={y} value={y}>{y}</option>
@@ -130,21 +130,19 @@ export default function Importar() {
             </div>
           </div>
 
-          {/* Archivo */}
-          <div className="card">
+          <div className="section-card">
             <div className="flex items-center gap-3 mb-5">
-              <div className="w-10 h-10 bg-gradient-to-br from-sky-400 to-blue-500 rounded-xl flex items-center justify-center shadow-md shadow-sky-500/30">
+              <div className="p-2.5 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl">
                 <Upload className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900">2. Subir Archivo Excel</h3>
-                <p className="text-xs text-slate-500">Arrastra o haz clic para seleccionar</p>
+                <h3 className="text-base font-bold text-slate-900">2. Subir Archivo</h3>
+                <p className="text-xs text-slate-500">Arrastra el archivo o haz clic para seleccionar</p>
               </div>
             </div>
 
             <div
-              className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200
-                ${dragging ? 'border-sky-400 bg-sky-50 scale-[1.01]' : file ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:border-sky-300 hover:bg-sky-50'}`}
+              className={`upload-zone relative overflow-hidden ${dragging ? 'upload-zone-active' : file ? 'border-emerald-300 bg-emerald-50/50' : ''}`}
               onClick={() => fileInputRef.current?.click()}
               onDragOver={e => { e.preventDefault(); setDragging(true) }}
               onDragLeave={() => setDragging(false)}
@@ -158,32 +156,30 @@ export default function Importar() {
                 className="hidden"
               />
               {file ? (
-                <div className="flex items-center justify-center gap-4">
-                  <div className="w-14 h-14 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-2xl flex items-center justify-center shadow-lg">
+                <div className="flex items-center justify-center gap-5">
+                  <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
                     <FileSpreadsheet className="w-7 h-7 text-white" />
                   </div>
                   <div className="text-left">
-                    <p className="font-bold text-slate-800">{file.name}</p>
-                    <p className="text-sm text-slate-500">{(file.size / 1024).toFixed(1)} KB Â· PerÃ­odo: {mesNombre} {anio}</p>
+                    <p className="font-semibold text-slate-800">{file.name}</p>
+                    <p className="text-sm text-slate-500">{(file.size / 1024).toFixed(1)} KB • {mesNombre} {anio}</p>
                   </div>
                 </div>
               ) : (
                 <div>
-                  <div className="w-14 h-14 bg-gradient-to-br from-sky-100 to-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                    <Upload className="w-7 h-7 text-sky-400" />
+                  <div className="w-16 h-16 bg-gradient-to-br from-cyan-100 to-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <Upload className="w-8 h-8 text-cyan-500" />
                   </div>
-                  <p className="text-slate-600 font-medium">Haz clic o arrastra aquÃ­ el archivo</p>
-                  <p className="text-sm text-slate-400 mt-1">Formatos: .xlsx, .xls</p>
+                  <p className="text-slate-700 font-medium mb-1">Arrastra el archivo aquí</p>
+                  <p className="text-sm text-slate-400">o haz clic para seleccionar • .xlsx, .xls</p>
                 </div>
               )}
             </div>
 
             {error && (
-              <div className="mt-4 p-4 bg-rose-50 border-2 border-rose-200 rounded-xl flex items-center gap-3">
-                <div className="w-9 h-9 bg-rose-500 rounded-xl flex items-center justify-center shrink-0">
-                  <AlertCircle className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-rose-700 font-medium text-sm">{error}</span>
+              <div className="alert-error mt-4">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm">{error}</span>
               </div>
             )}
 
@@ -191,12 +187,12 @@ export default function Importar() {
               <button
                 onClick={handleUpload}
                 disabled={!file || uploading}
-                className={`btn-primary flex items-center gap-2 ${(!file || uploading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className="btn-primary flex items-center gap-2 disabled:opacity-50"
               >
                 {uploading ? (
-                  <><Loader2 className="w-5 h-5 animate-spin" />Importando...</>
+                  <><Loader2 className="w-4 h-4 animate-spin" />Importando...</>
                 ) : (
-                  <><Upload className="w-5 h-5" />Importar â€” {mesNombre} {anio}</>
+                  <><Upload className="w-4 h-4" />Importar - {mesNombre} {anio}</>
                 )}
               </button>
               {(file || result) && !uploading && (
@@ -205,36 +201,36 @@ export default function Importar() {
             </div>
           </div>
 
-          {/* Resultado */}
           {result && (
-            <div className="card bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-14 h-14 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-2xl flex items-center justify-center shadow-lg">
+            <div className="section-card bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-200">
+              <div className="flex items-center gap-4 mb-5">
+                <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
                   <CheckCircle className="w-7 h-7 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-emerald-900">Â¡ImportaciÃ³n Exitosa!</h3>
-                  <p className="text-sm text-emerald-700">{mesNombre} {anio}</p>
+                  <h3 className="text-lg font-bold text-emerald-900">¡Importación Exitosa!</h3>
+                  <p className="text-sm text-emerald-700">Período: {mesNombre} {anio}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 {[
-                  { label: 'Bloques leÃ­dos', value: result.personal ?? result.personal_count ?? 0, color: 'sky' },
-                  { label: 'Personal creado', value: result.personal_creados ?? 0, color: 'violet' },
-                  { label: 'Planillas creadas', value: result.planillas_creadas ?? 0, color: 'emerald' },
-                  { label: 'Total planillas', value: result.planillas ?? result.planillas_count ?? 0, color: 'amber' },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className={`bg-white rounded-xl p-3 border border-${color}-100 text-center shadow-sm`}>
-                    <p className={`text-2xl font-black text-${color}-600`}>{value}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+                  { label: 'Bloques', value: result.personal ?? result.personal_count ?? 0, icon: Users },
+                  { label: 'Creados', value: result.personal_creados ?? 0, icon: CheckCircle },
+                  { label: 'Planillas', value: result.planillas_creadas ?? 0, icon: FileSpreadsheet },
+                  { label: 'Total', value: result.planillas ?? result.planillas_count ?? 0, icon: LayoutList },
+                ].map(({ label, value, icon: Icon }, idx) => (
+                  <div key={idx} className="bg-white rounded-xl p-4 border border-emerald-100 text-center">
+                    <Icon className="w-5 h-5 text-emerald-500 mx-auto mb-2" />
+                    <p className="text-2xl font-bold text-emerald-700">{value}</p>
+                    <p className="text-xs text-slate-500">{label}</p>
                   </div>
                 ))}
               </div>
               {result.errores && result.errores.length > 0 && (
-                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                  <p className="text-xs font-semibold text-amber-700 mb-1">Advertencias ({result.errores.length})</p>
-                  <ul className="text-xs text-amber-600 space-y-1">
-                    {result.errores.slice(0, 5).map((e: string, i: number) => <li key={i}>â€¢ {e}</li>)}
+                <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                  <p className="text-sm font-semibold text-amber-700 mb-2">Advertencias ({result.errores.length})</p>
+                  <ul className="text-sm text-amber-600 space-y-1">
+                    {result.errores.slice(0, 5).map((e: string, i: number) => <li key={i}>• {e}</li>)}
                   </ul>
                 </div>
               )}
@@ -242,64 +238,71 @@ export default function Importar() {
           )}
         </div>
 
-        {/* â”€â”€ Sidebar info â”€â”€ */}
         <div className="space-y-5">
-          <div className="card">
+          <div className="section-card">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-md">
+              <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl">
                 <LayoutList className="w-5 h-5 text-white" />
               </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Formato del Excel</h3>
-                <p className="text-xs text-slate-500">Bloques verticales por empleado</p>
-              </div>
+              <h3 className="text-sm font-bold text-slate-900">Formato Excel</h3>
             </div>
-            <div className="bg-slate-50 rounded-xl p-3 text-xs font-mono border border-slate-200 space-y-0.5 leading-relaxed text-slate-600">
-              <p className="text-slate-400">Col A  â”‚ Col B         â”‚ Col C    â”‚ Col D</p>
-              <p className="text-slate-300">â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€</p>
-              <p><span className="text-violet-600">HABERES</span>â”‚ Apellidos     â”‚ DETALLE  â”‚ FEBRERO</p>
-              <p>       â”‚ Nombres       â”‚ BASICA   â”‚ 0.03</p>
-              <p>       â”‚               â”‚ PERSONAL â”‚ 0.01</p>
-              <p>       â”‚ TRAB.SERV.II  â”‚ DL19990  â”‚ 60.00</p>
-              <p>       â”‚ RD 150-93     â”‚ TPH      â”‚ 19.20</p>
-              <p>       â”‚ uu-01-0-005   â”‚ ...</p>
-              <p className="text-rose-500">DSCTOS â”‚               â”‚ DL20530  â”‚ 3.80</p>
-              <p>       â”‚               â”‚ SEG.SOC  â”‚ 3.80</p>
-              <p className="text-slate-400">â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€</p>
-              <p>TOTAL HABERES                    â”‚ 153.92</p>
-              <p>TOTAL DESCUENTOS                 â”‚ 76.27</p>
-              <p>TOTAL LIQUIDO                    â”‚ 77.65</p>
+            <div className="bg-slate-900 rounded-xl p-4 text-xs font-mono text-slate-300 space-y-1">
+              <div className="flex gap-2 text-slate-500 border-b border-slate-700 pb-2 mb-2">
+                <span className="w-8">Col A</span>
+                <span className="w-16">Col B</span>
+                <span className="w-16">Col C</span>
+                <span className="flex-1">Col D</span>
+              </div>
+              <p className="text-violet-400">HABERES</p>
+              <p><span className="text-slate-500">|</span> Apellidos <span className="text-slate-500">|</span> DETALLE <span className="text-slate-500">|</span> MES</p>
+              <p><span className="text-slate-500">|</span> Nombres <span className="text-slate-500">|</span> BASICA <span className="text-slate-500">|</span> 0.03</p>
+              <p><span className="text-slate-500">|</span> <span className="text-slate-600">|</span> PERSONAL <span className="text-slate-500">|</span> 0.01</p>
+              <p className="text-red-400 mt-2">DSCTOS</p>
+              <p><span className="text-slate-500">|</span> <span className="text-slate-600">|</span> DL20530 <span className="text-slate-500">|</span> 3.80</p>
+              <div className="flex gap-2 mt-2 pt-2 border-t border-slate-700">
+                <span className="text-emerald-400">TOTAL</span>
+                <span className="text-slate-500">|</span>
+                <span className="text-emerald-400">153.92</span>
+              </div>
             </div>
           </div>
 
-          <div className="card">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-sky-400 to-blue-500 rounded-xl flex items-center justify-center shadow-md">
-                <Users className="w-5 h-5 text-white" />
+          <div className="section-card">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl">
+                <HelpCircle className="w-5 h-5 text-white" />
               </div>
-              <h3 className="text-sm font-bold text-slate-900">Datos detectados</h3>
+              <h3 className="text-sm font-bold text-slate-900">Estructura de Datos</h3>
             </div>
-            <ul className="text-xs text-slate-600 space-y-2">
+            <div className="space-y-3">
               {[
-                ['Nombre empleado', 'Col B (celdas fusionadas)'],
-                ['Puesto / RD / UU', 'Col B (debajo del nombre)'],
-                ['DNI', 'Col B â€” "DNI 12345678"'],
-                ['Haberes (ingresos)', 'SecciÃ³n HABERES â†’ Col C/D'],
-                ['Descuentos', 'SecciÃ³n DSCTOS â†’ Col C/D'],
-                ['Mes / AÃ±o', 'Cabecera + tu selecciÃ³n arriba'],
-              ].map(([k, v]) => (
-                <li key={k} className="flex justify-between gap-2 border-b border-slate-100 pb-1.5">
-                  <span className="font-semibold text-slate-700">{k}</span>
-                  <span className="text-slate-400 text-right">{v}</span>
-                </li>
+                { label: 'Nombre', desc: 'Columna B - Nombres' },
+                { label: 'Puesto', desc: 'Columna B - Puesto' },
+                { label: 'DNI', desc: 'Columna B - DNI' },
+                { label: 'Ingresos', desc: 'Sección HABERES' },
+                { label: 'Descuentos', desc: 'Sección DSCTOS' },
+              ].map(({ label, desc }, idx) => (
+                <div key={idx} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                  <div className="w-2 h-2 bg-cyan-500 rounded-full"></div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-700">{label}</p>
+                    <p className="text-xs text-slate-400">{desc}</p>
+                  </div>
+                </div>
               ))}
-            </ul>
-            <p className="mt-3 text-xs text-slate-400 bg-amber-50 border border-amber-100 rounded-lg p-2">
-              El perÃ­odo que seleccionas <strong>siempre tiene prioridad</strong> sobre lo que detecte el Excel.
-            </p>
+            </div>
+          </div>
+
+          <div className="section-card bg-gradient-to-br from-cyan-500 to-blue-600 text-white">
+            <h3 className="font-bold text-white mb-2">¿Necesitas ayuda?</h3>
+            <p className="text-sm text-white/80 mb-4">Descarga nuestra plantilla de ejemplo para facilitar la importación</p>
+            <button className="w-full bg-white/20 hover:bg-white/30 text-white font-medium py-3 rounded-xl transition-all text-sm flex items-center justify-center gap-2">
+              <FileType className="w-4 h-4" />
+              Descargar Plantilla
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
-
       </div>
     </div>
   )
