@@ -4,16 +4,13 @@ import { dashboardApi } from '../services/api'
 import {
   Users,
   FileSpreadsheet,
-  TrendingUp,
-  TrendingDown,
   DollarSign,
   Calendar,
   ArrowRight,
-  Activity,
-  Clock,
-  CheckCircle2,
   Search,
   ListChecks,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react'
 
 interface Resumen {
@@ -25,29 +22,16 @@ interface Resumen {
   planillas_mes: any[]
 }
 
-type StatConfigItem = {
-  label: string
-  key: keyof Pick<
-    Resumen,
-    'total_personal' | 'total_planillas' | 'total_haberes' | 'total_descuentos' | 'total_liquido'
-  >
-  icon: any
-  desc: string
-  currency?: boolean
-  highlight?: boolean
-}
-
-const statConfig: StatConfigItem[] = [
-  { label: 'Total personal', key: 'total_personal', icon: Users, desc: 'Empleados registrados' },
-  { label: 'Planillas', key: 'total_planillas', icon: FileSpreadsheet, desc: 'Nóminas generadas' },
-  { label: 'Total haberes', key: 'total_haberes', icon: TrendingUp, desc: 'Ingresos del periodo', currency: true },
-  { label: 'Descuentos', key: 'total_descuentos', icon: TrendingDown, desc: 'Deducciones del periodo', currency: true },
-  { label: 'Pago líquido', key: 'total_liquido', icon: DollarSign, desc: 'Total a pagar', currency: true, highlight: true },
+const statConfig = [
+  { label: 'Total Personal', key: 'total_personal' as keyof Resumen, icon: Users, desc: 'Empleados registrados' },
+  { label: 'Planillas', key: 'total_planillas' as keyof Resumen, icon: FileSpreadsheet, desc: 'Nóminas generadas' },
+  { label: 'Total Haberes', key: 'total_haberes' as keyof Resumen, icon: TrendingUp, desc: 'Ingresos del periodo', currency: true },
+  { label: 'Descuentos', key: 'total_descuentos' as keyof Resumen, icon: TrendingDown, desc: 'Deducciones del periodo', currency: true },
+  { label: 'Pago Líquido', key: 'total_liquido' as keyof Resumen, icon: DollarSign, desc: 'Total a pagar', currency: true, highlight: true },
 ]
 
 export default function Dashboard() {
   const navigate = useNavigate()
-
   const [data, setData] = useState<Resumen | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -79,98 +63,94 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[420px]">
+      <div className="flex items-center justify-center min-h-[400px]">
         <div className="spinner" />
       </div>
     )
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Activity className="w-5 h-5 text-rose-600" />
-            <span className="text-sm font-semibold text-rose-700">Dashboard</span>
-          </div>
-          <h2 className="page-title">Dashboard Overview</h2>
-          <p className="text-slate-500 mt-1">Resumen del sistema de nóminas</p>
+          <h2 className="page-title">Dashboard</h2>
+          <p className="text-gray-500 mt-1">Resumen general del sistema de nóminas</p>
         </div>
 
-        <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="p-2 bg-rose-50 rounded-xl">
-            <Calendar className="w-5 h-5 text-rose-700" />
+        <div className="flex items-center gap-3 bg-white px-4 py-2.5 rounded-xl border border-gray-200 shadow-sm">
+          <div className="p-2 bg-red-50 rounded-lg">
+            <Calendar className="w-4 h-4 text-red-600" />
           </div>
           <div>
-            <p className="text-xs text-slate-500 font-semibold uppercase">Periodo actual</p>
-            <p className="text-sm font-bold text-slate-900">{currentMonth}</p>
+            <p className="text-xs text-gray-500 font-medium uppercase">Periodo actual</p>
+            <p className="text-sm font-bold text-gray-900">{currentMonth}</p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 lg:gap-6">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         {statConfig.map((stat, idx) => (
           <div
             key={idx}
-            className={['metric-card card-hover', stat.highlight ? 'ring-2 ring-rose-600/30' : ''].join(' ')}
+            className={[
+              'bg-white rounded-2xl border p-5 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5',
+              stat.highlight ? 'border-red-200 ring-2 ring-red-500/10' : 'border-gray-100',
+            ].join(' ')}
           >
-            <div className="flex items-start justify-between mb-4">
-              <div className="min-w-0">
-                <p className="stat-label">{stat.label}</p>
-                <p className="text-xs text-slate-400 mt-0.5 truncate">{stat.desc}</p>
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{stat.label}</p>
+                <p className="text-xs text-gray-400 mt-1">{stat.desc}</p>
               </div>
-
-              <div className="stat-icon bg-gradient-to-br from-rose-600 to-red-700 shadow-lg shadow-rose-600/15">
-                <stat.icon className="w-5 h-5 text-white" />
+              <div className={[
+                'w-10 h-10 rounded-xl flex items-center justify-center',
+                stat.highlight ? 'bg-gradient-to-br from-red-600 to-red-700' : 'bg-gray-100'
+              ].join(' ')}>
+                <stat.icon className={`w-5 h-5 ${stat.highlight ? 'text-white' : 'text-gray-600'}`} />
               </div>
             </div>
-
-            <p className="stat-value">
+            <p className="text-2xl font-extrabold text-gray-900 mt-3">
               {stat.currency
                 ? formatCurrency((data?.[stat.key] as number) || 0)
                 : ((data?.[stat.key] as number) || 0)}
             </p>
-
-            {stat.highlight && (
-              <div className="mt-3 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span className="text-xs font-semibold text-emerald-700">Listo para procesar</span>
-              </div>
-            )}
           </div>
         ))}
       </div>
 
+      {/* Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+        {/* Main Table */}
         <div className="xl:col-span-3">
           {data?.planillas_mes && data.planillas_mes.length > 0 ? (
-            <div className="section-card">
-              <div className="section-header">
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-gradient-to-br from-rose-600 to-red-700 rounded-xl shadow-lg shadow-rose-600/15">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-red-700 flex items-center justify-center">
                     <ListChecks className="w-5 h-5 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-extrabold text-slate-900">Actividad reciente</h3>
-                    <p className="text-sm text-slate-500">
-                      {planillasFiltradas.length} registro(s) del periodo
-                    </p>
+                    <h3 className="text-base font-bold text-gray-900">Actividad Reciente</h3>
+                    <p className="text-sm text-gray-500">{planillasFiltradas.length} registros del periodo</p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <div className="search-box">
-                    <Search className="w-4 h-4 search-box-icon" />
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
-                      className="input"
-                      placeholder="Buscar empleado, DNI o puesto…"
+                      type="text"
+                      className="input pl-10 w-64"
+                      placeholder="Buscar empleado, DNI..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
                   </div>
 
                   <button
-                    className="btn-secondary flex items-center gap-2 text-sm py-2.5 px-4"
+                    className="btn-secondary flex items-center gap-2 text-sm"
                     onClick={() => navigate('/planillas')}
                   >
                     Ver todas <ArrowRight className="w-4 h-4" />
@@ -182,11 +162,11 @@ export default function Dashboard() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th className="rounded-tl-xl">Empleado</th>
+                      <th>Empleado</th>
                       <th>DNI</th>
                       <th className="text-right">Haberes</th>
                       <th className="text-right">Descuentos</th>
-                      <th className="text-right rounded-tr-xl">Líquido</th>
+                      <th className="text-right">Líquido</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -194,34 +174,34 @@ export default function Dashboard() {
                       <tr key={p.id} className="table-row">
                         <td>
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-600 to-red-700 text-white font-extrabold flex items-center justify-center shadow shadow-rose-600/15">
+                            <div className="avatar">
                               {(p.personal?.nombres?.charAt(0) || p.personal?.apellidos?.charAt(0) || '?').toUpperCase()}
                             </div>
                             <div className="min-w-0">
-                              <p className="font-semibold text-slate-900 truncate">
+                              <p className="font-semibold text-gray-900 text-sm truncate">
                                 {p.personal?.apellidos} {p.personal?.nombres}
                               </p>
-                              <p className="text-xs text-slate-500 truncate">{p.personal?.puesto || 'Sin puesto'}</p>
+                              <p className="text-xs text-gray-500 truncate">{p.personal?.puesto || 'Sin puesto'}</p>
                             </div>
                           </div>
                         </td>
 
                         <td>
-                          <span className="font-mono text-xs bg-slate-100 px-2.5 py-1 rounded-lg text-slate-700">
+                          <span className="font-mono text-xs bg-gray-100 px-2.5 py-1 rounded-lg text-gray-700">
                             {p.personal?.dni || '-'}
                           </span>
                         </td>
 
                         <td className="text-right">
-                          <span className="font-semibold text-emerald-700">{formatCurrency(p.total_haberes)}</span>
+                          <span className="font-semibold text-emerald-600">{formatCurrency(p.total_haberes)}</span>
                         </td>
 
                         <td className="text-right">
-                          <span className="font-semibold text-rose-700">{formatCurrency(p.total_descuentos)}</span>
+                          <span className="font-semibold text-red-600">{formatCurrency(p.total_descuentos)}</span>
                         </td>
 
                         <td className="text-right">
-                          <span className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-rose-600 to-red-700 text-white rounded-xl font-extrabold text-xs shadow-md shadow-rose-600/15">
+                          <span className="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg font-bold text-xs">
                             {formatCurrency(p.total_liquido)}
                           </span>
                         </td>
@@ -230,8 +210,8 @@ export default function Dashboard() {
 
                     {planillasFiltradas.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="py-10 text-center text-slate-500">
-                          Sin resultados para “{search}”.
+                        <td colSpan={5} className="py-8 text-center text-gray-500">
+                          Sin resultados para "{search}"
                         </td>
                       </tr>
                     )}
@@ -240,13 +220,13 @@ export default function Dashboard() {
               </div>
             </div>
           ) : (
-            <div className="section-card border-2 border-dashed border-slate-200">
+            <div className="bg-white rounded-2xl border-2 border-dashed border-gray-200 p-8">
               <div className="empty-state">
                 <div className="empty-state-icon">
-                  <FileSpreadsheet className="w-7 h-7 text-rose-600" />
+                  <FileSpreadsheet className="w-6 h-6 text-red-600" />
                 </div>
-                <h3 className="text-lg font-extrabold text-slate-900 mb-1">Sin planillas registradas</h3>
-                <p className="text-slate-500 mb-5">Importa un Excel o crea una planilla manualmente.</p>
+                <h3 className="text-lg font-bold text-gray-900 mb-1">Sin planillas registradas</h3>
+                <p className="text-gray-500 mb-5">Importa un Excel o crea una planilla manualmente.</p>
                 <button className="btn-primary" onClick={() => navigate('/importar')}>
                   Importar Excel
                 </button>
@@ -255,60 +235,61 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="space-y-5">
-          <div className="section-card">
-            <h3 className="font-extrabold text-slate-900 mb-4 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-rose-600" />
-              Acciones rápidas
+        {/* Sidebar Actions */}
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-gray-100 p-5">
+            <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <span className="w-2 h-2 bg-red-600 rounded-full"></span>
+              Acciones Rápidas
             </h3>
 
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               <button
-                className="w-full flex items-center justify-between gap-3 p-3 rounded-2xl hover:bg-slate-50 transition-all text-left border border-slate-100"
+                className="w-full flex items-center justify-between gap-3 p-3 rounded-xl hover:bg-gray-50 transition-all text-left border border-transparent hover:border-gray-200"
                 onClick={() => navigate('/personal')}
               >
                 <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-gradient-to-br from-rose-600 to-red-700 shadow shadow-rose-600/15">
-                    <Users className="w-4 h-4 text-white" />
+                  <div className="p-2 rounded-lg bg-red-50">
+                    <Users className="w-4 h-4 text-red-600" />
                   </div>
-                  <span className="text-sm font-semibold text-slate-800">Gestionar personal</span>
+                  <span className="text-sm font-medium text-gray-700">Gestionar personal</span>
                 </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
+                <ArrowRight className="w-4 h-4 text-gray-400" />
               </button>
 
               <button
-                className="w-full flex items-center justify-between gap-3 p-3 rounded-2xl hover:bg-slate-50 transition-all text-left border border-slate-100"
+                className="w-full flex items-center justify-between gap-3 p-3 rounded-xl hover:bg-gray-50 transition-all text-left border border-transparent hover:border-gray-200"
                 onClick={() => navigate('/planillas')}
               >
                 <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-gradient-to-br from-rose-600 to-red-700 shadow shadow-rose-600/15">
-                    <FileSpreadsheet className="w-4 h-4 text-white" />
+                  <div className="p-2 rounded-lg bg-red-50">
+                    <FileSpreadsheet className="w-4 h-4 text-red-600" />
                   </div>
-                  <span className="text-sm font-semibold text-slate-800">Ver planillas</span>
+                  <span className="text-sm font-medium text-gray-700">Ver planillas</span>
                 </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
+                <ArrowRight className="w-4 h-4 text-gray-400" />
               </button>
 
               <button
-                className="w-full flex items-center justify-between gap-3 p-3 rounded-2xl hover:bg-slate-50 transition-all text-left border border-slate-100"
+                className="w-full flex items-center justify-between gap-3 p-3 rounded-xl hover:bg-gray-50 transition-all text-left border border-transparent hover:border-gray-200"
                 onClick={() => navigate('/importar')}
               >
                 <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-gradient-to-br from-rose-600 to-red-700 shadow shadow-rose-600/15">
-                    <Activity className="w-4 h-4 text-white" />
+                  <div className="p-2 rounded-lg bg-red-50">
+                    <FileSpreadsheet className="w-4 h-4 text-red-600" />
                   </div>
-                  <span className="text-sm font-semibold text-slate-800">Importar Excel</span>
+                  <span className="text-sm font-medium text-gray-700">Importar Excel</span>
                 </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
+                <ArrowRight className="w-4 h-4 text-gray-400" />
               </button>
             </div>
           </div>
 
-          <div className="section-card bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white border border-slate-800">
-            <h3 className="font-extrabold text-white mb-2">Centro de ayuda</h3>
-            <p className="text-sm text-white/80 mb-4">Revisa el formato y recomendaciones antes de importar.</p>
-            <button className="w-full bg-white/10 hover:bg-white/15 text-white font-semibold py-2.5 rounded-xl transition-all text-sm">
-              Ver guía
+          <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-5 text-white">
+            <h3 className="font-bold text-white mb-2">Centro de Ayuda</h3>
+            <p className="text-sm text-white/70 mb-4">Revisa el formato y recomendaciones antes de importar.</p>
+            <button className="w-full bg-white/10 hover:bg-white/20 text-white font-medium py-2.5 rounded-xl transition-all text-sm">
+              Ver Guía
             </button>
           </div>
         </div>
