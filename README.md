@@ -117,3 +117,5 @@ python app.py
 ## Licencia
 
 MIT
+
+Entra a PLANILLASU/ugelaa y haz todo esto:hagamos un REWORK por completo al forntned garantizando ui & ux limpiando por completo lo que ya existia, usando mejor los espacios, modales, botones, iconos, diseño que se parezca a la de la imagen, vamso modulo por modulo. vamos recuerda usar la paleta rojo, blanco y gris (NINGUN OTRO COLOR) vamos con todo eso quiero que sea mas profesional quitando cosas inncesarioas (notificaciones,configuracion por ahora) vamos paso a paso  vamos un reowrk ocn todo lo que es forntend garantizadno ui&ux ademas de mejorar el uso de espacios, iconos, modales, ventanas emergentes, y todo lo demas el contenido optimo si ves necesario elimiar algunas cosas y usar reutilizable en compponentes, todo como un experto en frontend cambiando por completo [Image 1]  con esa paleta rojo, blanco, gris vamos hazlo modulo pro modulo

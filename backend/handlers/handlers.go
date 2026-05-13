@@ -6,12 +6,15 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-
 	"planillas-backend/models"
-
+	"crypto/sha256"
+	"encoding/hex"
+	"sort"
+	"strings"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"encoding/json"
 )
 
 func getDB(c *gin.Context) *gorm.DB {
@@ -592,21 +595,128 @@ func ImportarHaberes(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Mes inválido (debe ser 1-12)"})
 		return
 	}
+	if anio < 1900 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Año inválido"})
+		return
+	}
+
+	// 1) Crear batch de importación
+	batch := models.ImportBatch{
+		Mes:    int16(mes),
+		Anio:   int16(anio),
+		Source: "python",
+	}
+	if err := db.Create(&batch).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creando batch: " + err.Error()})
+		return
+	}
 
 	personalCreados := 0
 	planillasCreadas := 0
+	duplicadosDetectados := 0
+	conflictosDetectados := 0
 	var warnings []string
 
+	// Para detectar duplicados/conflictos dentro del mismo payload (mismo mes)
+	seenByIdentity := map[string]string{} // identityKey -> fingerprint
+	seenCount := map[string]int{}         // identityKey -> repeats
+
 	for _, emp := range payload.Empleados {
+		identityKey, fp := fingerprintEmpleado(emp)
+
+		// Si ya vimos esta identidad en el mismo payload:
+		if prevFP, ok := seenByIdentity[identityKey]; ok {
+			seenCount[identityKey]++
+
+			if prevFP == fp {
+				// Duplicado REAL (idéntico): registrar y saltar
+				duplicadosDetectados++
+				rep := seenCount[identityKey]
+
+				n := emp.Nombre
+				var dni *string
+				if emp.DNI != nil && *emp.DNI != "" {
+					tmp := *emp.DNI
+					dni = &tmp
+				}
+				var rd *string
+				if emp.Resolucion != nil && *emp.Resolucion != "" {
+					tmp := *emp.Resolucion
+					rd = &tmp
+				}
+
+				reason := "Duplicado idéntico en el mismo mes (misma identidad y mismos conceptos/montos)"
+				dup := models.ImportDuplicate{
+					BatchID:     batch.ID,
+					Mes:         int16(mes),
+					Anio:        int16(anio),
+					IdentityKey: identityKey,
+					Repeats:     rep,
+					Nombres:     &n,
+					Apellidos:   nil,
+					DNI:         dni,
+					RD:          rd,
+					Reason:      &reason,
+					CreatedAt:   time.Now(),
+				}
+				_ = db.Create(&dup).Error
+				continue
+			}
+
+			// Conflicto: misma identidad pero distinto monto/conceptos
+			conflictosDetectados++
+			reason := "Conflicto: misma identidad en el mismo mes, pero conceptos/montos distintos. No se inserta segunda planilla por restricción UNIQUE (personal_id, mes, anio)."
+
+			// Guardamos payload entrante como JSON (string) para revisión
+			incomingJSON, _ := json.Marshal(emp)
+
+			n := emp.Nombre
+			var dni *string
+			if emp.DNI != nil && *emp.DNI != "" {
+				tmp := *emp.DNI
+				dni = &tmp
+			}
+			var rd *string
+			if emp.Resolucion != nil && *emp.Resolucion != "" {
+				tmp := *emp.Resolucion
+				rd = &tmp
+			}
+
+			conf := models.ImportConflict{
+				BatchID:         batch.ID,
+				Mes:             int16(mes),
+				Anio:            int16(anio),
+				IdentityKey:     identityKey,
+				Nombres:         &n,
+				Apellidos:       nil,
+				DNI:             dni,
+				RD:              rd,
+				KeptPlanillaID:  nil,
+				IncomingPayload: string(incomingJSON),
+				Reason:          &reason,
+				CreatedAt:       time.Now(),
+			}
+			_ = db.Create(&conf).Error
+
+			// No insertamos otra planilla
+			continue
+		}
+
+		// Primera vez que vemos esta identidad en el payload
+		seenByIdentity[identityKey] = fp
+		seenCount[identityKey] = 1
+
+		// 2) Resolver/crear Personal
 		var personal models.Personal
 		found := false
 
-		// Lookup by DNI first, then by name
+		// Mejorar lookup: DNI + nombre (en tu payload "Nombre" viene completo en un campo)
 		if emp.DNI != nil && *emp.DNI != "" {
 			if err := db.Where("dni = ?", *emp.DNI).First(&personal).Error; err == nil {
 				found = true
 			}
 		}
+		// fallback por nombre completo (como hoy), pero ojo: puede mezclar personas
 		if !found && emp.Nombre != "" {
 			if err := db.Where("nombres = ?", emp.Nombre).First(&personal).Error; err == nil {
 				found = true
@@ -637,14 +747,12 @@ func ImportarHaberes(c *gin.Context) {
 				personal.UU = *emp.Codigo
 			}
 			if err := db.Create(&personal).Error; err != nil {
-				fmt.Printf("[DEBUG] Error creating personal '%s': %v\n", emp.Nombre, err)
 				warnings = append(warnings, fmt.Sprintf("No se pudo crear '%s': %v", emp.Nombre, err))
 				continue
 			}
-			fmt.Printf("[DEBUG] Created personal ID=%d for '%s'\n", personal.ID, emp.Nombre)
 			personalCreados++
 		} else {
-			// Fill in any missing fields
+			// Completar campos faltantes
 			updates := map[string]interface{}{}
 			if personal.DNI == "" && emp.DNI != nil && *emp.DNI != "" {
 				updates["dni"] = *emp.DNI
@@ -659,11 +767,11 @@ func ImportarHaberes(c *gin.Context) {
 				updates["uu"] = *emp.Codigo
 			}
 			if len(updates) > 0 {
-				db.Model(&personal).Updates(updates)
+				_ = db.Model(&personal).Updates(updates).Error
 			}
 		}
 
-		// Find or create planilla for this period
+		// 3) Crear planilla del periodo si no existe (única por personal/mes/anio)
 		var planilla models.Planilla
 		err := db.Where("personal_id = ? AND mes = ? AND anio = ?", personal.ID, mes, anio).First(&planilla).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
@@ -672,47 +780,62 @@ func ImportarHaberes(c *gin.Context) {
 		}
 
 		if planilla.ID == 0 {
+			now := time.Now()
 			planilla = models.Planilla{
-				PersonalID: personal.ID,
-				Mes:        int16(mes),
-				Anio:       int16(anio),
-				CreadoEn:   time.Now(),
+				PersonalID:     personal.ID,
+				Mes:            int16(mes),
+				Anio:           int16(anio),
+				CreadoEn:      now,
+				ImportBatchID: &batch.ID,
+				ImportedAt:    &now,
 			}
 			if err := db.Create(&planilla).Error; err != nil {
-				fmt.Printf("[DEBUG] Error creating planilla for personal_id=%d: %v\n", personal.ID, err)
 				warnings = append(warnings, fmt.Sprintf("Error al crear planilla para '%s': %v", emp.Nombre, err))
 				continue
 			}
-			fmt.Printf("[DEBUG] Created planilla ID=%d for personal_id=%d\n", planilla.ID, personal.ID)
 			planillasCreadas++
+		} else {
+			// Ya existía planilla: la consideramos "ya importada" (no duplicamos)
+			// OJO: si quieres reemplazar contenidos, se hace en otra operación.
 		}
 
-		if planilla.ID == 0 {
-			warnings = append(warnings, fmt.Sprintf("Planilla sin ID válido para '%s', omitiendo ingresos/descuentos", emp.Nombre))
-			continue
-		}
-
-		// Insert haberes (ingresos)
+		// 4) Insertar conceptos
 		for _, h := range emp.Haberes {
+			if h.Monto <= 0 {
+				continue
+			}
 			if err := db.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: h.Concepto, Monto: h.Monto}).Error; err != nil {
 				warnings = append(warnings, fmt.Sprintf("Error al insertar ingreso '%s' para '%s': %v", h.Concepto, emp.Nombre, err))
 			}
 		}
-		// Insert descuentos
 		for _, d := range emp.Descuentos {
+			if d.Monto <= 0 {
+				continue
+			}
 			if err := db.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: d.Concepto, Monto: d.Monto}).Error; err != nil {
 				warnings = append(warnings, fmt.Sprintf("Error al insertar descuento '%s' para '%s': %v", d.Concepto, emp.Nombre, err))
 			}
 		}
-		// Totals are maintained by DB triggers automatically
+
+		// 5) Recalcular totales una sola vez por planilla (más rápido que triggers por insert masivo)
+		var totalHab, totalDesc float64
+		db.Model(&models.Ingreso{}).Where("planilla_id = ?", planilla.ID).Select("COALESCE(SUM(monto), 0)").Scan(&totalHab)
+		db.Model(&models.Descuento{}).Where("planilla_id = ?", planilla.ID).Select("COALESCE(SUM(monto), 0)").Scan(&totalDesc)
+		db.Model(&planilla).Updates(map[string]interface{}{
+			"total_haberes":    totalHab,
+			"total_descuentos": totalDesc,
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":           "Importación completada",
-		"personal_creados":  personalCreados,
-		"planillas_creadas": planillasCreadas,
-		"total_empleados":   len(payload.Empleados),
-		"errores":           warnings,
+		"message":               "Importación completada",
+		"batch_id":              batch.ID,
+		"personal_creados":      personalCreados,
+		"planillas_creadas":     planillasCreadas,
+		"total_empleados":       len(payload.Empleados),
+		"duplicados_detectados": duplicadosDetectados,
+		"conflictos_detectados": conflictosDetectados,
+		"errores":               warnings,
 	})
 }
 
@@ -749,4 +872,117 @@ func ResumenDashboard(c *gin.Context) {
 		"total_liquido":    totalHaberes - totalDescuentos,
 		"planillas_mes":    planillasMes,
 	})
+}
+
+func norm(s string) string {
+	s = strings.TrimSpace(strings.ToUpper(s))
+	s = strings.Join(strings.Fields(s), " ")
+	return s
+}
+
+func sumConcepts(items []models.ConceptoItem) float64 {
+	var t float64
+	for _, it := range items {
+		if it.Monto > 0 {
+			t += it.Monto
+		}
+	}
+	return t
+}
+
+func fingerprintEmpleado(emp models.EmpleadoHaber) (identityKey string, fp string) {
+	nombre := norm(emp.Nombre)
+	dni := ""
+	if emp.DNI != nil {
+		dni = norm(*emp.DNI)
+	}
+	rd := ""
+	if emp.Resolucion != nil {
+		rd = norm(*emp.Resolucion)
+	}
+
+	identityKey = strings.Join([]string{nombre, dni, rd}, "|")
+
+	habSum := sumConcepts(emp.Haberes)
+	descSum := sumConcepts(emp.Descuentos)
+
+	concs := make([]string, 0, len(emp.Haberes)+len(emp.Descuentos))
+	for _, h := range emp.Haberes {
+		if h.Monto > 0 {
+			concs = append(concs, "H:"+norm(h.Concepto)+":"+fmt.Sprintf("%.2f", h.Monto))
+		}
+	}
+	for _, d := range emp.Descuentos {
+		if d.Monto > 0 {
+			concs = append(concs, "D:"+norm(d.Concepto)+":"+fmt.Sprintf("%.2f", d.Monto))
+		}
+	}
+	sort.Strings(concs)
+
+	raw := fmt.Sprintf("%s|%.2f|%.2f|%s", identityKey, habSum, descSum, strings.Join(concs, ";"))
+	h := sha256.Sum256([]byte(raw))
+	fp = hex.EncodeToString(h[:])
+	return
+}
+
+func ListarDuplicadosImport(c *gin.Context) {
+	db := getDB(c)
+
+	mes, _ := strconv.Atoi(c.Query("mes"))
+	anio, _ := strconv.Atoi(c.Query("anio"))
+	if mes < 1 || mes > 12 || anio < 1900 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mes/anio inválidos"})
+		return
+	}
+
+	var dups []models.ImportDuplicate
+	if err := db.Where("mes = ? AND anio = ?", mes, anio).Order("created_at desc").Find(&dups).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, dups)
+}
+
+func ListarConflictosImport(c *gin.Context) {
+	db := getDB(c)
+
+	mes, _ := strconv.Atoi(c.Query("mes"))
+	anio, _ := strconv.Atoi(c.Query("anio"))
+	if mes < 1 || mes > 12 || anio < 1900 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mes/anio inválidos"})
+		return
+	}
+
+	var conf []models.ImportConflict
+	if err := db.Where("mes = ? AND anio = ?", mes, anio).Order("created_at desc").Find(&conf).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, conf)
+}
+
+func LimpiarImportacionMes(c *gin.Context) {
+	db := getDB(c)
+
+	mes, _ := strconv.Atoi(c.Query("mes"))
+	anio, _ := strconv.Atoi(c.Query("anio"))
+	if mes < 1 || mes > 12 || anio < 1900 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mes/anio inválidos"})
+		return
+	}
+
+	// 1) borrar planillas del mes/año (cascade borra ingresos/descuentos)
+	if err := db.Where("mes = ? AND anio = ?", mes, anio).Delete(&models.Planilla{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error borrando planillas: " + err.Error()})
+		return
+	}
+
+	// 2) borrar batches y sus duplicados/conflictos asociados del mes/año
+	// (por FK cascade se van import_duplicates/import_conflicts)
+	if err := db.Where("mes = ? AND anio = ?", mes, anio).Delete(&models.ImportBatch{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error borrando batches: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Importación limpiada", "mes": mes, "anio": anio})
 }

@@ -36,6 +36,9 @@ func initDB() {
 		&models.Planilla{},
 		&models.Ingreso{},
 		&models.Descuento{},
+		&models.ImportBatch{},
+		&models.ImportDuplicate{},
+		&models.ImportConflict{},
 	)
 
 	log.Println("Base de datos conectada correctamente")
@@ -113,6 +116,9 @@ func main() {
 			importar.POST("/excel", handlers.ImportarExcel)
 			importar.POST("/json", handlers.ImportarJSON)
 			importar.POST("/haberes", handlers.ImportarHaberes)
+			importar.GET("/duplicados", handlers.ListarDuplicadosImport)
+			importar.GET("/conflictos", handlers.ListarConflictosImport)
+			importar.DELETE("/limpiar", handlers.LimpiarImportacionMes)
 		}
 
 		dashboard := api.Group("/dashboard")

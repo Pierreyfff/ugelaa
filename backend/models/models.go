@@ -41,6 +41,9 @@ type Planilla struct {
 	CreadoEn        time.Time   `json:"creado_en"`
 	Ingresos        []Ingreso   `json:"ingresos,omitempty" gorm:"foreignKey:PlanillaID"`
 	Descuentos      []Descuento `json:"descuentos,omitempty" gorm:"foreignKey:PlanillaID"`
+	ImportBatchID *uint      `json:"import_batch_id"`
+	ImportedAt    *time.Time `json:"imported_at"`
+	UpdatedAt     *time.Time `json:"updated_at"`
 }
 
 func (p *Planilla) CalculateTotal() {
@@ -113,3 +116,53 @@ type ConceptoItem struct {
 	Concepto string  `json:"concepto"`
 	Monto    float64 `json:"monto"`
 }
+
+type ImportBatch struct {
+	ID        uint       `json:"id" gorm:"primaryKey"`
+	Mes       int16      `json:"mes" gorm:"not null"`
+	Anio      int16      `json:"anio" gorm:"not null"`
+	Source    string     `json:"source" gorm:"size:30;not null;default:'python'"`
+	Filename  *string    `json:"filename"`
+	CreatedAt time.Time  `json:"created_at"`
+	DeletedAt *time.Time `json:"deleted_at"`
+}
+
+func (ImportBatch) TableName() string { return "import_batches" }
+
+type ImportDuplicate struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	BatchID     uint      `json:"batch_id" gorm:"not null"`
+	Mes         int16     `json:"mes" gorm:"not null"`
+	Anio        int16     `json:"anio" gorm:"not null"`
+	IdentityKey string    `json:"identity_key" gorm:"type:text;not null"`
+	Repeats     int       `json:"repeats" gorm:"not null;default:1"`
+	Nombres     *string   `json:"nombres"`
+	Apellidos   *string   `json:"apellidos"`
+	DNI         *string   `json:"dni"`
+	RD          *string   `json:"rd"`
+	Reason      *string   `json:"reason"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type ImportConflict struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	BatchID     uint      `json:"batch_id" gorm:"not null"`
+	Mes         int16     `json:"mes" gorm:"not null"`
+	Anio        int16     `json:"anio" gorm:"not null"`
+	IdentityKey string    `json:"identity_key" gorm:"type:text;not null"`
+
+	Nombres   *string `json:"nombres"`
+	Apellidos *string `json:"apellidos"`
+	DNI       *string `json:"dni"`
+	RD        *string `json:"rd"`
+
+	KeptPlanillaID *uint   `json:"kept_planilla_id"`
+	IncomingPayload string `json:"incoming_payload" gorm:"type:jsonb"`
+	Reason          *string `json:"reason" gorm:"type:text"`
+
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (ImportConflict) TableName() string { return "import_conflicts" }
+
+func (ImportDuplicate) TableName() string { return "import_duplicates" }

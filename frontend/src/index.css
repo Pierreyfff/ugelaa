@@ -14,6 +14,7 @@ html, body {
 }
 
 :root {
+  /* === Marca (por defecto, cyan). Cambiaremos a guinda con un switch simple más abajo === */
   --primary-50: #ecfeff;
   --primary-100: #cffafe;
   --primary-200: #a5f3fc;
@@ -24,7 +25,20 @@ html, body {
   --primary-700: #0e7490;
   --primary-800: #155e75;
   --primary-900: #164e63;
-  
+
+  /* === Paleta guinda (Payroll Admin) === */
+  --maroon-50: #fff1f2;
+  --maroon-100: #ffe4e6;
+  --maroon-200: #fecdd3;
+  --maroon-300: #fda4af;
+  --maroon-400: #fb7185;
+  --maroon-500: #f43f5e;
+  --maroon-600: #e11d48;
+  --maroon-700: #be123c;
+  --maroon-800: #9f1239;
+  --maroon-900: #881337;
+
+  /* === Neutrales === */
   --slate-50: #f8fafc;
   --slate-100: #f1f5f9;
   --slate-200: #e2e8f0;
@@ -35,29 +49,49 @@ html, body {
   --slate-700: #334155;
   --slate-800: #1e293b;
   --slate-900: #0f172a;
-  
+
+  /* === Estados === */
   --emerald-50: #ecfdf5;
   --emerald-100: #d1fae5;
   --emerald-500: #10b981;
   --emerald-600: #059669;
   --emerald-700: #047857;
-  
+
   --red-50: #fef2f2;
   --red-100: #fee2e2;
   --red-500: #ef4444;
   --red-600: #dc2626;
   --red-700: #b91c1c;
-  
+
   --amber-50: #fffbeb;
   --amber-100: #fef3c7;
   --amber-500: #f59e0b;
   --amber-600: #d97706;
-  
+
   --violet-50: #f5f3ff;
   --violet-100: #ede9fe;
   --violet-500: #8b5cf6;
   --violet-600: #7c3aed;
+
+  /* === Switch de tema ===
+     Si quieres TODO el tema tipo Payroll Admin, cambia estas 2 líneas:
+       --brand-500 / --brand-600 => usa --maroon-600/--maroon-700
+     Por ahora lo dejamos en cyan para no “romper” el look existente, y lo usamos en componentes nuevos.
+  */
+  --brand-500: var(--maroon-600);
+  --brand-600: var(--maroon-700);
+  --brand-700: var(--maroon-800);
 }
+
+/* Para activar tema guinda global (opcional):
+   descomenta este bloque y comenta las 3 vars --brand arriba
+
+:root {
+  --brand-500: var(--maroon-600);
+  --brand-600: var(--maroon-700);
+  --brand-700: var(--maroon-800);
+}
+*/
 
 * {
   scrollbar-width: thin;
@@ -84,7 +118,7 @@ html, body {
 
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e0f2fe 100%);
+  background: linear-gradient(135deg, #f8fafc 0%, #f3f4f6 55%, #f8fafc 100%);
   color: var(--slate-800);
   min-height: 100vh;
   line-height: 1.6;
@@ -108,7 +142,7 @@ body {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-600) 100%);
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-600) 100%);
   color: white;
   padding: 0.75rem 1.5rem;
   border-radius: 12px;
@@ -117,13 +151,13 @@ body {
   transition: all 0.2s ease;
   border: none;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(6, 182, 212, 0.2);
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.18);
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg, var(--primary-600) 0%, var(--primary-700) 100%);
+  background: linear-gradient(135deg, var(--brand-600) 0%, var(--brand-700) 100%);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(6, 182, 212, 0.3);
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.22);
 }
 
 .btn-primary:active {
@@ -148,21 +182,27 @@ body {
   color: var(--slate-800);
 }
 
+/* Danger más “Payroll Admin” (guinda) */
 .btn-danger {
-  background: linear-gradient(135deg, var(--red-500) 0%, var(--red-600) 100%);
+  background: linear-gradient(135deg, var(--maroon-600) 0%, var(--maroon-700) 100%);
   color: white;
   padding: 0.75rem 1.5rem;
   border-radius: 12px;
-  font-weight: 500;
+  font-weight: 600;
   font-size: 0.875rem;
   transition: all 0.2s ease;
   border: none;
   cursor: pointer;
+  box-shadow: 0 10px 22px rgba(190, 18, 60, 0.18);
 }
 
 .btn-danger:hover {
-  background: linear-gradient(135deg, var(--red-600) 0%, var(--red-700) 100%);
+  background: linear-gradient(135deg, var(--maroon-700) 0%, var(--maroon-800) 100%);
   transform: translateY(-1px);
+}
+
+.btn-danger:active {
+  transform: translateY(0);
 }
 
 .btn-icon {
@@ -191,8 +231,8 @@ body {
 }
 
 .input:focus {
-  border-color: var(--primary-400);
-  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.1);
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.10);
 }
 
 .input::placeholder {
@@ -253,6 +293,19 @@ body {
   background: var(--primary-50);
   color: var(--primary-700);
   border: 1px solid var(--primary-100);
+}
+
+/* Nuevos badges para duplicados/conflictos (UX) */
+.badge-dup {
+  background: var(--amber-50);
+  color: #a16207;
+  border: 1px solid var(--amber-100);
+}
+
+.badge-conflict {
+  background: var(--maroon-50);
+  color: var(--maroon-800);
+  border: 1px solid var(--maroon-100);
 }
 
 .stat-card {
@@ -358,12 +411,12 @@ body {
 }
 
 .upload-zone:hover {
-  border-color: var(--primary-400);
+  border-color: var(--brand-500);
   background: var(--primary-50);
 }
 
 .upload-zone-active {
-  border-color: var(--primary-400);
+  border-color: var(--brand-500);
   background: var(--primary-50);
 }
 
@@ -380,7 +433,7 @@ select.input {
   width: 2.5rem;
   height: 2.5rem;
   border: 3px solid var(--slate-200);
-  border-top-color: var(--primary-500);
+  border-top-color: var(--brand-500);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -423,7 +476,7 @@ select.input {
 }
 
 .count-badge {
-  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-600) 100%);
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-600) 100%);
   color: white;
   padding: 0.375rem 0.75rem;
   border-radius: 8px;
@@ -524,7 +577,7 @@ select.input {
 }
 
 .input-add input:focus {
-  border-color: var(--primary-400);
+  border-color: var(--brand-500);
   box-shadow: none;
 }
 
@@ -661,7 +714,7 @@ select.input {
 }
 
 .gradient-text {
-  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  background: linear-gradient(135deg, var(--brand-500), var(--brand-600));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

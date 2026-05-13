@@ -8,16 +8,16 @@ export default {
     extend: {
       colors: {
         primary: {
-          50: '#ecfeff',
-          100: '#cffafe',
-          200: '#a5f3fc',
-          300: '#67e8f9',
-          400: '#22d3ee',
-          500: '#06b6d4',
-          600: '#0891b2',
-          700: '#0e7490',
-          800: '#155e75',
-          900: '#164e63',
+          50: '#fff1f2',
+          100: '#ffe4e6',
+          200: '#fecdd3',
+          300: '#fda4af',
+          400: '#fb7185',
+          500: '#f43f5e',
+          600: '#e11d48',
+          700: '#be123c',
+          800: '#9f1239',
+          900: '#881337',
         }
       },
       fontFamily: {
@@ -26,8 +26,8 @@ export default {
       boxShadow: {
         'card': '0 1px 3px rgba(0, 0, 0, 0.02), 0 8px 24px rgba(0, 0, 0, 0.04)',
         'card-hover': '0 8px 30px rgba(0, 0, 0, 0.08)',
-        'btn': '0 2px 8px rgba(6, 182, 212, 0.2)',
-        'btn-hover': '0 4px 16px rgba(6, 182, 212, 0.3)',
+        'btn': '0 2px 8px rgba(225, 29, 72, 0.2)',
+        'btn-hover': '0 4px 16px rgba(225, 29, 72, 0.3)',
       },
       borderRadius: {
         'xl': '12px',

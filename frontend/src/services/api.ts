@@ -47,9 +47,17 @@ export const importarApi = {
     formData.append('file', file)
     formData.append('mes', String(mes))
     formData.append('anio', String(anio))
-    return fetch('/python/process-excel', { method: 'POST', body: formData })
-      .then(r => r.json())
+    return fetch('/python/process-excel', { method: 'POST', body: formData }).then(r => r.json())
   },
+
+  limpiarMes: (mes: number, anio: number) =>
+    api.delete('/api/importar/limpiar', { params: { mes, anio } }),
+
+  duplicados: (mes: number, anio: number) =>
+    api.get('/api/importar/duplicados', { params: { mes, anio } }),
+
+  conflictos: (mes: number, anio: number) =>
+    api.get('/api/importar/conflictos', { params: { mes, anio } }),
 }
 
 export default api

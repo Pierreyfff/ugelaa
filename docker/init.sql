@@ -100,3 +100,59 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trigger_update_descuentos
 AFTER INSERT OR UPDATE OR DELETE ON descuentos
 FOR EACH ROW EXECUTE FUNCTION update_planilla_descuentos();
+
+-- 1) Tracking de importaciones por mes/año
+CREATE TABLE IF NOT EXISTS import_batches (
+  id SERIAL PRIMARY KEY,
+  mes SMALLINT NOT NULL CHECK (mes BETWEEN 1 AND 12),
+  anio SMALLINT NOT NULL CHECK (anio >= 1900),
+  source VARCHAR(30) NOT NULL DEFAULT 'python',
+  filename TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_batches_mes_anio ON import_batches(mes, anio);
+
+-- 2) Registro de duplicados (cuando son realmente iguales)
+CREATE TABLE IF NOT EXISTS import_duplicates (
+  id SERIAL PRIMARY KEY,
+  batch_id INT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
+  mes SMALLINT NOT NULL,
+  anio SMALLINT NOT NULL,
+  identity_key TEXT NOT NULL,
+  repeats INT NOT NULL DEFAULT 1,
+
+  nombres VARCHAR(100),
+  apellidos VARCHAR(100),
+  dni VARCHAR(20),
+  rd VARCHAR(50),
+
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_duplicates_batch ON import_duplicates(batch_id);
+CREATE INDEX IF NOT EXISTS idx_import_duplicates_mes_anio ON import_duplicates(mes, anio);
+
+-- 3) (Recomendado) relacionar planilla con el batch de importación
+ALTER TABLE planilla
+  ADD COLUMN IF NOT EXISTS import_batch_id INT REFERENCES import_batches(id),
+  ADD COLUMN IF NOT EXISTS imported_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_planilla_import_batch ON planilla(import_batch_id);
+
+-- 4) Mantener updated_at
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_planilla_updated_at ON planilla;
+CREATE TRIGGER trigger_planilla_updated_at
+BEFORE UPDATE ON planilla
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
