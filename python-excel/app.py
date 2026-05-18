@@ -1,0 +1,283 @@
+import os
+import re
+import requests
+import xlrd
+from flask import Flask, request, jsonify
+from openpyxl import load_workbook
+from werkzeug.utils import secure_filename
+
+app = Flask(__name__)
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8080")
+UPLOAD_FOLDER = "/app/uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+DNI_PATTERN = re.compile(r"DNI\s*(\d+)", re.IGNORECASE)
+IGNORAR_CONCEPTOS = {"REINTEGRO", "ESCOLARIDAD", "AGUINALDO", "DETALLE"}
+
+
+def parsear_valor(v):
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return round(f, 2) if f else None
+    except (TypeError, ValueError):
+        return None
+
+
+def limpiar_concepto(c: str) -> str:
+    return c.strip().lstrip("+").strip().upper()
+
+
+def extraer_dni(texto: str):
+    if not texto:
+        return None
+    m = DNI_PATTERN.search(str(texto))
+    return m.group(1) if m else None
+
+
+def _leer_filas(filepath: str) -> list:
+    """Return all rows as a list of tuples, supporting both .xls and .xlsx."""
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext == ".xls":
+        wb = xlrd.open_workbook(filepath)
+        ws = wb.sheet_by_index(0)
+        filas = []
+        for rx in range(ws.nrows):
+            row = []
+            for cx in range(ws.ncols):
+                cell = ws.cell(rx, cx)
+                # xlrd type 0=empty,1=text,2=number,3=date,4=bool,5=error,6=blank
+                if cell.ctype in (0, 5, 6):
+                    row.append(None)
+                elif cell.ctype == 2:
+                    # Return int if value is whole number, else float
+                    v = cell.value
+                    row.append(int(v) if v == int(v) else v)
+                else:
+                    row.append(cell.value)
+            filas.append(tuple(row))
+        return filas
+    else:
+        wb = load_workbook(filepath, data_only=True)
+        ws = wb.active
+        return list(ws.iter_rows(values_only=True))
+
+
+def extraer_empleados(filepath: str) -> list:
+    """
+    Parse a payroll Excel with vertical-block layout:
+
+      Col A    | Col B           | Col C    | Col D
+      ---------+-----------------+----------+--------
+      HABERES  | Apellidos Nomb. | BASICA   | 0.03
+      (merged) | (merged)        | DL19990  | 60.00
+               | CARGO/PUESTO    | TPH      | 19.20
+               | RD 150-93       | ...
+               | uu-01-0-005     |
+      DSCTOS   |                 | DL20530  | 3.80
+      TOTAL HABERES              |          | 153.92
+      TOTAL DESCUENTOS           |          | 76.27
+      TOTAL LIQUIDO              |          | 77.65
+
+    Mes/Año are NOT read from the file; they come from the user request.
+    """
+    filas = _leer_filas(filepath)
+
+    empleados = []
+    i = 0
+    n = len(filas)
+
+    while i < n:
+        fila = filas[i]
+        col_a = str(fila[0]).strip() if fila[0] else ""
+
+        if col_a == "HABERES" and len(fila) > 1 and fila[1]:
+            emp = {
+                "nombre": str(fila[1]).strip(),
+                "cargo": None,
+                "resolucion": None,
+                "codigo": None,
+                "dni": None,
+                "haberes": [],
+                "descuentos": [],
+                "total_haberes": None,
+                "total_descuentos": None,
+                "total_liquido": None,
+            }
+
+            concepto_inicial = str(fila[2]).strip() if len(fila) > 2 and fila[2] else ""
+            valor_inicial = parsear_valor(fila[3] if len(fila) > 3 else None)
+            if concepto_inicial and limpiar_concepto(concepto_inicial) not in IGNORAR_CONCEPTOS:
+                if valor_inicial is not None:
+                    emp["haberes"].append({"concepto": concepto_inicial, "monto": valor_inicial})
+
+            seccion = "HABERES"
+            i += 1
+
+            while i < n:
+                f = filas[i]
+                a = str(f[0]).strip() if len(f) > 0 and f[0] else ""
+                b = str(f[1]).strip() if len(f) > 1 and f[1] else ""
+                c_cell = str(f[2]).strip() if len(f) > 2 and f[2] else ""
+                d = parsear_valor(f[3] if len(f) > 3 else None)
+
+                if a == "TOTAL HABERES":
+                    emp["total_haberes"] = d
+                    i += 1
+                    continue
+                if a == "TOTAL DESCUENTOS":
+                    emp["total_descuentos"] = d
+                    i += 1
+                    continue
+                if a == "TOTAL LIQUIDO":
+                    emp["total_liquido"] = d
+                    i += 1
+                    break
+
+                if a == "DSCTOS":
+                    seccion = "DSCTOS"
+                    if c_cell and limpiar_concepto(c_cell) not in IGNORAR_CONCEPTOS and d is not None:
+                        emp["descuentos"].append({"concepto": c_cell, "monto": d})
+                    i += 1
+                    continue
+
+                if a == "HABERES" and len(f) > 1 and f[1]:
+                    break
+
+                if b:
+                    dni_encontrado = extraer_dni(b)
+                    if dni_encontrado:
+                        emp["dni"] = dni_encontrado
+                    elif re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.)\s*[\d\-/]", b, re.IGNORECASE):
+                        emp["resolucion"] = b
+                    elif re.match(r"^uu-", b, re.IGNORECASE):
+                        emp["codigo"] = b
+                    elif not re.match(r"^(TOTAL|DSCTOS)", b, re.IGNORECASE):
+                        if emp["cargo"] is None:
+                            emp["cargo"] = b
+
+                if c_cell:
+                    nombre_limpio = limpiar_concepto(c_cell)
+                    if nombre_limpio not in IGNORAR_CONCEPTOS and not nombre_limpio.startswith("+"):
+                        if d is not None:
+                            item = {"concepto": c_cell.strip(), "monto": d}
+                            if seccion == "HABERES":
+                                emp["haberes"].append(item)
+                            else:
+                                emp["descuentos"].append(item)
+
+                i += 1
+
+            empleados.append(emp)
+            continue
+
+        i += 1
+
+    return empleados
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
+
+
+@app.route("/process-excel", methods=["POST"])
+def process_excel():
+    if "file" not in request.files:
+        return jsonify({"error": "No se encontró archivo"}), 400
+
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"error": "Archivo sin nombre"}), 400
+
+    filename = secure_filename(file.filename)
+    if not filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({"error": "Solo se aceptan archivos Excel (.xlsx, .xls)"}), 400
+
+    mes = request.form.get("mes", type=int)
+    anio = request.form.get("anio", type=int)
+
+    if not mes or not anio:
+        return jsonify({"error": "Se requieren los campos mes y anio"}), 400
+    if not (1 <= mes <= 12):
+        return jsonify({"error": "Mes debe estar entre 1 y 12"}), 400
+
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(filepath)
+
+    try:
+        empleados = extraer_empleados(filepath)
+
+        payload = {
+            "mes": mes,
+            "anio": anio,
+            "total_empleados": len(empleados),
+            "empleados": empleados,
+        }
+
+        response = requests.post(
+            f"{BACKEND_URL}/api/importar/haberes",
+            json=payload,
+            timeout=60,
+        )
+
+        if response.status_code == 200:
+            resp_data = response.json()
+            return jsonify({
+                "message": "Excel procesado correctamente",
+                "personal_creados": resp_data.get("personal_creados", 0),
+                "planillas_creadas": resp_data.get("planillas_creadas", 0),
+                "personal": len(empleados),
+                "planillas": len(empleados),
+                "errores": resp_data.get("errores", []),
+            })
+        else:
+            return jsonify({
+                "error": "Error al enviar al backend",
+                "details": response.text,
+            }), response.status_code
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+
+@app.route("/validate-excel", methods=["POST"])
+def validate_excel():
+    if "file" not in request.files:
+        return jsonify({"error": "No se encontró archivo"}), 400
+
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"error": "Archivo sin nombre"}), 400
+
+    filename = secure_filename(file.filename)
+    if not filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({"error": "Solo se aceptan archivos Excel (.xlsx, .xls)"}), 400
+
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(filepath)
+
+    try:
+        empleados = extraer_empleados(filepath)
+        return jsonify({
+            "valid": True,
+            "total_empleados": len(empleados),
+            "preview": empleados[:5],
+        })
+    except Exception as e:
+        return jsonify({"valid": False, "error": str(e)}), 400
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8081)

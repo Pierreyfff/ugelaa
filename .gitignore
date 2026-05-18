@@ -1,0 +1,42 @@
+# Dependencies
+frontend/node_modules/
+python-excel/__pycache__/
+*.pyc
+__pycache__/
+
+# Go
+backend/bin/
+backend/tmp/
+
+# Build outputs
+frontend/dist/
+frontend/build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Uploads
+uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker
+.docker/
+
+# Temp
+*.tmp
+*.temp
