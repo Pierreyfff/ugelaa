@@ -1,5 +1,5 @@
 ﻿import { useState, useRef } from 'react'
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, Calendar, Users, LayoutList, FileType, ArrowRight, HelpCircle } from 'lucide-react'
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, Calendar, Users, LayoutList, FileType, ArrowRight, HelpCircle, AlertTriangle, DollarSign } from 'lucide-react'
 
 const MESES = [
   { v: 1, l: 'Enero' }, { v: 2, l: 'Febrero' }, { v: 3, l: 'Marzo' },
@@ -20,6 +20,7 @@ export default function Importar() {
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [validacion, setValidacion] = useState<any>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -44,12 +45,38 @@ export default function Importar() {
     if (f) acceptFile(f)
   }
 
-  const handleUpload = async () => {
+  const handleValidate = async () => {
     if (!file) return
     setUploading(true)
     setIsLoading(true)
     setError(null)
     setResult(null)
+    setValidacion(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/python/validate-excel', { method: 'POST', body: formData })
+      const data = await response.json()
+      if (response.ok) {
+        setValidacion(data)
+      } else {
+        setError(data.error || `Error ${response.status}`)
+      }
+    } catch (err) {
+      setError('Error de conexión')
+    } finally {
+      setUploading(false)
+      setIsLoading(false)
+    }
+  }
+
+  const handleConfirmUpload = async () => {
+    if (!file) return
+    setUploading(true)
+    setIsLoading(true)
+    setValidacion(null)
 
     try {
       const formData = new FormData()
@@ -72,10 +99,15 @@ export default function Importar() {
     }
   }
 
+  const handleCancelValidation = () => {
+    setValidacion(null)
+  }
+
   const resetForm = () => {
     setFile(null)
     setResult(null)
     setError(null)
+    setValidacion(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -228,16 +260,151 @@ export default function Importar() {
                   </div>
                 ))}
               </div>
+              
+              {(result.monto_total || result.monto_total === 0) && (
+                <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800 flex items-center gap-3">
+                  <DollarSign className="w-6 h-6 text-green-600" />
+                  <div>
+                    <p className="text-sm font-medium text-green-700 dark:text-green-400">Monto Total Liquido</p>
+                    <p className="text-xl font-bold text-green-800 dark:text-green-300">S/ {Number(result.monto_total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                </div>
+              )}
+
+              {(result.dnis_duplicados?.length > 0 || result.nombres_duplicados?.length > 0) && (
+                <div className="mt-4 space-y-3">
+                  {result.dnis_duplicados?.length > 0 && (
+                    <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="w-5 h-5 text-amber-600" />
+                        <p className="font-medium text-amber-800 dark:text-amber-300">DNIs Duplicados ({result.dnis_duplicados.length})</p>
+                      </div>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {result.dnis_duplicados.map((item: any, idx: number) => (
+                          <div key={idx} className="border-b border-amber-200 dark:border-amber-700 pb-2 last:border-0">
+                            <div className="flex justify-between text-sm font-medium text-amber-800 dark:text-amber-300">
+                              <span>DNI: {item.dni}</span>
+                              <span>x{item.count}</span>
+                            </div>
+                            <div className="mt-1 space-y-1">
+                              {item.empleados?.map((emp: any, eidx: number) => (
+                                <div key={eidx} className="text-xs text-amber-700 dark:text-amber-400 flex justify-between pl-2">
+                                  <span>{emp.nombre || '-'}</span>
+                                  <span className="font-medium">S/ {Number(emp.monto || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {result.nombres_duplicados?.length > 0 && (
+                    <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-200 dark:border-orange-800">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="w-5 h-5 text-orange-600" />
+                        <p className="font-medium text-orange-800 dark:text-orange-300">Nombres Duplicados ({result.nombres_duplicados.length})</p>
+                      </div>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {result.nombres_duplicados.map((item: any, idx: number) => (
+                          <div key={idx} className="border-b border-orange-200 dark:border-orange-700 pb-2 last:border-0">
+                            <div className="flex justify-between text-sm font-medium text-orange-800 dark:text-orange-300">
+                              <span>{item.nombre}</span>
+                              <span>x{item.count}</span>
+                            </div>
+                            <div className="mt-1 space-y-1">
+                              {item.empleados?.map((emp: any, eidx: number) => (
+                                <div key={eidx} className="text-xs text-orange-700 dark:text-orange-400 flex justify-between pl-2">
+                                  <span>DNI: {emp.dni || '-'}</span>
+                                  <span className="font-medium">S/ {Number(emp.monto || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
-          {file && (
-            <div className="flex gap-3 mt-4">
-              <button onClick={resetForm} className="btn-secondary">Limpiar</button>
+          {validacion && (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border-2 border-amber-300 dark:border-amber-600">
+              <div className="flex items-center gap-4 mb-5">
+                <div className="w-14 h-14 bg-amber-500 rounded-2xl flex items-center justify-center">
+                  <AlertTriangle className="w-7 h-7 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-amber-700 dark:text-amber-400">Advertencia - Datos Duplicados</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Se encontraron duplicados en el archivo. ¿Desea continuar?</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{validacion.total_empleados}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Total Registros</p>
+                </div>
+                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{validacion.dnis_duplicados?.length || 0}</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">DNIs Duplicados</p>
+                </div>
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-bold text-green-700 dark:text-green-400">S/ {Number(validacion.monto_total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
+                  <p className="text-xs text-green-600 dark:text-green-400">Monto Total</p>
+                </div>
+              </div>
+
+              {(validacion.dnis_duplicados?.length > 0) && (
+                <div className="mb-4">
+                  <p className="font-medium text-amber-800 dark:text-amber-300 mb-2">Detalle DNIs Duplicados:</p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {validacion.dnis_duplicados.map((item: any, idx: number) => (
+                      <div key={idx} className="bg-amber-50 dark:bg-amber-900/30 rounded-lg p-2 text-sm">
+                        <div className="flex justify-between font-medium text-amber-800 dark:text-amber-300">
+                          <span>DNI: {item.dni}</span>
+                          <span>x{item.count}</span>
+                        </div>
+                        <div className="mt-1 space-y-1">
+                          {item.empleados?.slice(0, 3).map((emp: any, eidx: number) => (
+                            <div key={eidx} className="text-xs text-amber-700 dark:text-amber-400 flex justify-between pl-2">
+                              <span>{emp.nombre || '-'}</span>
+                              <span>S/ {Number(emp.monto || 0).toFixed(2)}</span>
+                            </div>
+                          ))}
+                          {item.count > 3 && (
+                            <div className="text-xs text-amber-600 dark:text-amber-500 pl-2">...y {item.count - 3} más</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 mt-4">
+                <button onClick={handleCancelValidation} className="btn-secondary flex-1">Cancelar</button>
+                <button onClick={handleConfirmUpload} disabled={uploading} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                  <Upload className="w-4 h-4" /> Confirmar e Importar
+                </button>
+              </div>
             </div>
           )}
-          <button onClick={handleUpload} disabled={!file || uploading} className="btn-primary flex items-center gap-2 mt-4 disabled:opacity-50">
-            <Upload className="w-4 h-4" /> Importar - {mesNombre} {anio}
-          </button>
+
+          {!validacion && (
+            <>
+              {file && (
+                <div className="flex gap-3 mt-4">
+                  <button onClick={resetForm} className="btn-secondary">Limpiar</button>
+                </div>
+              )}
+              <button onClick={handleValidate} disabled={!file || uploading} className="btn-primary flex items-center gap-2 mt-4 disabled:opacity-50">
+                <Upload className="w-4 h-4" /> Importar - {mesNombre} {anio}
+              </button>
+            </>
+          )}
         </div>
 
         <div className="space-y-5">

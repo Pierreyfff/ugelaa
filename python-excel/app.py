@@ -31,6 +31,49 @@ def limpiar_concepto(c: str) -> str:
     return c.strip().lstrip("+").strip().upper()
 
 
+def analizar_duplicados(empleados: list) -> dict:
+    dni_count = {}
+    nombre_count = {}
+    dni_empleados = {}
+    nombre_empleados = {}
+    
+    for emp in empleados:
+        dni = emp.get("dni")
+        nombre = emp.get("nombre")
+        monto = emp.get("total_liquido")
+        
+        if dni:
+            if dni not in dni_count:
+                dni_count[dni] = 0
+                dni_empleados[dni] = []
+            dni_count[dni] += 1
+            dni_empleados[dni].append({"nombre": nombre, "monto": monto})
+        
+        if nombre:
+            if nombre not in nombre_count:
+                nombre_count[nombre] = 0
+                nombre_empleados[nombre] = []
+            nombre_count[nombre] += 1
+            nombre_empleados[nombre].append({"dni": dni, "monto": monto})
+    
+    dnis_duplicados = [(dni, count) for dni, count in dni_count.items() if count > 1]
+    nombres_duplicados = [(nombre, count) for nombre, count in nombre_count.items() if count > 1]
+    
+    return {
+        "dnis_duplicados": [{"dni": dni, "count": count, "empleados": dni_empleados[dni]} for dni, count in dnis_duplicados],
+        "nombres_duplicados": [{"nombre": nombre, "count": count, "empleados": nombre_empleados[nombre]} for nombre, count in nombres_duplicados],
+    }
+
+
+def calcular_monto_total(empleados: list) -> float:
+    total = 0.0
+    for emp in empleados:
+        liquido = emp.get("total_liquido")
+        if liquido:
+            total += float(liquido)
+    return round(total, 2)
+
+
 def extraer_dni(texto: str):
     if not texto:
         return None
@@ -212,6 +255,9 @@ def process_excel():
 
     try:
         empleados = extraer_empleados(filepath)
+        
+        analisis = analizar_duplicados(empleados)
+        monto_total = calcular_monto_total(empleados)
 
         payload = {
             "mes": mes,
@@ -235,6 +281,11 @@ def process_excel():
                 "personal": len(empleados),
                 "planillas": len(empleados),
                 "errores": resp_data.get("errores", []),
+                "personal_actualizados": resp_data.get("personal_actualizados", 0),
+                "dnis_duplicados": analisis["dnis_duplicados"],
+                "nombres_duplicados": analisis["nombres_duplicados"],
+                "monto_total": monto_total,
+                "duplicados": resp_data.get("duplicados", []),
             })
         else:
             return jsonify({
@@ -267,10 +318,16 @@ def validate_excel():
 
     try:
         empleados = extraer_empleados(filepath)
+        analisis = analizar_duplicados(empleados)
+        monto_total = calcular_monto_total(empleados)
+        
         return jsonify({
             "valid": True,
             "total_empleados": len(empleados),
             "preview": empleados[:5],
+            "dnis_duplicados": analisis["dnis_duplicados"],
+            "nombres_duplicados": analisis["nombres_duplicados"],
+            "monto_total": monto_total,
         })
     except Exception as e:
         return jsonify({"valid": False, "error": str(e)}), 400
