@@ -20,7 +20,6 @@ type Personal struct {
 	Puesto    string    `json:"puesto" gorm:"size:100"`
 	RD        string    `json:"rd" gorm:"size:50"`
 	UU        string    `json:"uu" gorm:"size:50"`
-	Activo    bool      `json:"activo" gorm:"default:true"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

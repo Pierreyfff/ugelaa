@@ -10,8 +10,8 @@ const api = axios.create({
 })
 
 export const personalApi = {
-  list: (search?: string, page = 1, limit = 20, sortBy = 'apellidos', sortOrder = 'asc', activo?: boolean) => 
-    api.get('/api/personal', { params: { search, page, limit, sort_by: sortBy, sort_order: sortOrder, activo } }),
+  list: (search?: string, page = 1, limit = 20, sortBy = 'apellidos', sortOrder = 'asc') => 
+    api.get('/api/personal', { params: { search, page, limit, sort_by: sortBy, sort_order: sortOrder } }),
   buscar: (q: string, limit = 10) => api.get('/api/personal/buscar', { params: { q, limit } }),
   get: (id: number) => api.get(`/api/personal/${id}`),
   create: (data: any) => api.post('/api/personal', data),

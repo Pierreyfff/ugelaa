@@ -10,7 +10,6 @@ interface Personal {
   puesto: string
   rd: string
   uu: string
-  activo: boolean
 }
 
 interface PaginationData {
@@ -26,13 +25,13 @@ export default function Personal() {
   const [loading, setLoading] = useState(true)
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all')
+  
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Personal | null>(null)
-  const [form, setForm] = useState({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '', activo: true })
+  const [form, setForm] = useState({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
   const [errors, setErrors] = useState<{ nombres?: string; apellidos?: string }>({})
 
   useEffect(() => {
@@ -45,11 +44,11 @@ export default function Personal() {
 
   useEffect(() => {
     loadPersonal()
-  }, [debouncedSearch, page, filterStatus])
+  }, [debouncedSearch, page])
 
   const loadPersonal = () => {
     setLoading(true)
-    personalApi.list(debouncedSearch, page, 20, 'apellidos', 'asc', filterStatus === 'all' ? undefined : filterStatus === 'active')
+    personalApi.list(debouncedSearch, page, 20, 'apellidos', 'asc')
       .then((res: { data: PaginationData }) => {
         setPersonal(res.data.data)
         setTotal(res.data.total)
@@ -79,7 +78,7 @@ export default function Personal() {
       }
       setShowModal(false)
       setEditing(null)
-      setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '', activo: true })
+      setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
       setErrors({})
       loadPersonal()
     } catch (error) {
@@ -95,8 +94,7 @@ export default function Personal() {
       apellidos: p.apellidos,
       puesto: p.puesto || '',
       rd: p.rd || '',
-      uu: p.uu || '',
-      activo: p.activo
+      uu: p.uu || ''
     })
     setShowModal(true)
   }
@@ -111,13 +109,6 @@ export default function Personal() {
       }
     }
   }
-
-  const toggleActivo = async (p: Personal) => {
-    await personalApi.update(p.id, { activo: !p.activo })
-    loadPersonal()
-  }
-
-  const activeCount = personal.filter(p => p.activo).length
 
   const getPaginationRange = () => {
     const range: number[] = []
@@ -149,7 +140,7 @@ export default function Personal() {
         <button
           onClick={() => {
             setEditing(null)
-            setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '', activo: true })
+setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
             setErrors({})
             setShowModal(true)
           }}
@@ -175,8 +166,8 @@ export default function Personal() {
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Activos</p>
-              <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">{activeCount}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total</p>
+              <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">{total}</p>
             </div>
             <div className="w-12 h-12 bg-green-50 dark:bg-green-900/20 rounded-xl flex items-center justify-center">
               <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
@@ -186,8 +177,8 @@ export default function Personal() {
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Inactivos</p>
-              <p className="text-3xl font-bold text-gray-400 dark:text-gray-500 mt-2">{total - activeCount}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total</p>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{total}</p>
             </div>
             <div className="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-xl flex items-center justify-center">
               <XCircle className="w-6 h-6 text-gray-400 dark:text-gray-500" />
@@ -216,25 +207,7 @@ export default function Personal() {
                 )}
               </div>
 
-              <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-                {[
-                  { key: 'all', label: 'Todos', count: total },
-                  { key: 'active', label: 'Activos', count: activeCount },
-                  { key: 'inactive', label: 'Inactivos', count: total - activeCount },
-                ].map(f => (
-                  <button
-                    key={f.key}
-                    onClick={() => { setFilterStatus(f.key as any); setPage(1) }}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                      filterStatus === f.key
-                        ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
+              
             </div>
 
             <div className="flex items-center gap-3">
@@ -279,7 +252,6 @@ export default function Personal() {
                   <th className="text-left py-4 px-4">Puesto</th>
                   <th className="text-left py-4 px-4">RD</th>
                   <th className="text-left py-4 px-4">UU</th>
-                  <th className="text-left py-4 px-4">Estado</th>
                   <th className="text-right py-4 px-5">Acciones</th>
                 </tr>
               </thead>
@@ -308,18 +280,6 @@ export default function Personal() {
                     </td>
                     <td className="py-4 px-4">
                       <span className="font-mono text-sm text-gray-500 bg-gray-50 dark:bg-gray-700 px-2 py-1 rounded dark:text-gray-400">{p.uu || '-'}</span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <button
-                        onClick={() => toggleActivo(p)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                          p.activo
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        {p.activo ? <><CheckCircle className="w-3.5 h-3.5" /> Activo</> : <><XCircle className="w-3.5 h-3.5" /> Inactivo</>}
-                      </button>
                     </td>
                     <td className="py-4 px-5">
                       <div className="flex items-center justify-end gap-2">
@@ -471,18 +431,7 @@ export default function Personal() {
                 </div>
               </div>
 
-              {editing && (
-                <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600">
-                  <input
-                    type="checkbox"
-                    id="activo"
-                    checked={form.activo}
-                    onChange={e => setForm({ ...form, activo: e.target.checked })}
-                    className="w-5 h-5 rounded border-gray-300 text-red-600 dark:border-gray-500 dark:bg-gray-600"
-                  />
-                  <label htmlFor="activo" className="text-sm font-medium text-gray-700 dark:text-gray-300">Empleado activo</label>
-                </div>
-              )}
+              
 
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">

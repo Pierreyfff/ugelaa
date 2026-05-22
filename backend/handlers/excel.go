@@ -253,7 +253,6 @@ func ReadExcelFile(filename string) (*models.DataExcel, error) {
 				cur = &block{
 					personal: models.Personal{
 						Nombres: empName,
-						Activo:  true,
 					},
 					planilla: models.PlanillaImport{
 						Nombres:    empName,

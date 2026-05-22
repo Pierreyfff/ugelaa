@@ -194,7 +194,7 @@ def extraer_empleados(filepath: str) -> list:
                     dni_encontrado = extraer_dni(b)
                     if dni_encontrado:
                         emp["dni"] = dni_encontrado
-                    elif re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.)\s*[\d\-/]", b, re.IGNORECASE):
+                    elif re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.)\w*\s*[\d\-./A-Za-z]+", b, re.IGNORECASE):
                         emp["resolucion"] = b
                     elif re.match(r"^uu-", b, re.IGNORECASE):
                         emp["codigo"] = b
@@ -269,7 +269,7 @@ def process_excel():
         response = requests.post(
             f"{BACKEND_URL}/api/importar/haberes",
             json=payload,
-            timeout=60,
+            timeout=300,
         )
 
         if response.status_code == 200:

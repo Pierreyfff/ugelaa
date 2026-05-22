@@ -109,14 +109,6 @@ func ListarPersonal(c *gin.Context) {
 		baseQuery = baseQuery.Where("nombres ILIKE ? OR apellidos ILIKE ? OR dni ILIKE ?", "%"+search+"%", "%"+search+"%", "%"+search+"%")
 	}
 
-	// Filtro por estado activo
-	activo := c.Query("activo")
-	if activo == "true" {
-		baseQuery = baseQuery.Where("activo = ?", true)
-	} else if activo == "false" {
-		baseQuery = baseQuery.Where("activo = ?", false)
-	}
-
 	// Filtro por puesto
 	puesto := c.Query("puesto")
 	if puesto != "" {
@@ -704,13 +696,13 @@ func importarData(db *gorm.DB, data *models.DataExcel) (int, int, []string) {
 			}
 			db.Create(&planilla)
 			planillasCreadas++
-		}
 
-		for _, ing := range pl.Ingresos {
-			db.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: ing.Tipo, Monto: ing.Monto})
-		}
-		for _, desc := range pl.Descuentos {
-			db.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: desc.Tipo, Monto: desc.Monto})
+			for _, ing := range pl.Ingresos {
+				db.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: ing.Tipo, Monto: ing.Monto})
+			}
+			for _, desc := range pl.Descuentos {
+				db.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: desc.Tipo, Monto: desc.Monto})
+			}
 		}
 
 		// Recalculate totals
@@ -787,6 +779,21 @@ func ImportarExcel(c *gin.Context) {
 		}
 	}
 
+	// Check if any planilla already exists for the periods being imported
+	periodos := map[string]bool{}
+	for _, pl := range data.Planillas {
+		key := fmt.Sprintf("%d-%d", pl.Mes, pl.Anio)
+		if !periodos[key] {
+			periodos[key] = true
+			var count int64
+			db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", pl.Mes, pl.Anio).Count(&count)
+			if count > 0 {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Este mes y año ya fue importado antes: %d/%d", pl.Mes, pl.Anio)})
+				return
+			}
+		}
+	}
+
 	personalCreados, planillasCreadas, warnings := importarData(db, data)
 	c.JSON(http.StatusOK, gin.H{
 		"message":           "Importación completada",
@@ -805,6 +812,21 @@ func ImportarJSON(c *gin.Context) {
 	if err := c.ShouldBindJSON(&data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "JSON inválido: " + err.Error()})
 		return
+	}
+
+	// Check if any planilla already exists for the periods being imported
+	periodos := map[string]bool{}
+	for _, pl := range data.Planillas {
+		key := fmt.Sprintf("%d-%d", pl.Mes, pl.Anio)
+		if !periodos[key] {
+			periodos[key] = true
+			var count int64
+			db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", pl.Mes, pl.Anio).Count(&count)
+			if count > 0 {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Este mes y año ya fue importado antes: %d/%d", pl.Mes, pl.Anio)})
+				return
+			}
+		}
 	}
 
 	personalCreados, planillasCreadas, warnings := importarData(db, &data)
@@ -839,6 +861,14 @@ func ImportarHaberes(c *gin.Context) {
 
 	if mes < 1 || mes > 12 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Mes inválido (debe ser 1-12)"})
+		return
+	}
+
+	// Check if any planilla already exists for this period
+	var count int64
+	db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", mes, anio).Count(&count)
+	if count > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Este mes y año ya fue importado antes: %d/%d", mes, anio)})
 		return
 	}
 
@@ -892,7 +922,6 @@ func ImportarHaberes(c *gin.Context) {
 			personal = models.Personal{
 				Nombres:   parts.nombres,
 				Apellidos: parts.apellidos,
-				Activo:    true,
 				CreatedAt: time.Now(),
 			}
 			if emp.DNI != nil {
@@ -957,23 +986,18 @@ func ImportarHaberes(c *gin.Context) {
 			}
 			fmt.Printf("[DEBUG] Created planilla ID=%d for personal_id=%d\n", planilla.ID, personal.ID)
 			planillasCreadas++
-		}
 
-		if planilla.ID == 0 {
-			warnings = append(warnings, fmt.Sprintf("Planilla sin ID válido para '%s', omitiendo ingresos/descuentos", emp.Nombre))
-			continue
-		}
-
-		// Insert haberes (ingresos)
-		for _, h := range emp.Haberes {
-			if err := db.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: h.Concepto, Monto: h.Monto}).Error; err != nil {
-				warnings = append(warnings, fmt.Sprintf("Error al insertar ingreso '%s' para '%s': %v", h.Concepto, emp.Nombre, err))
+			// Insert haberes (ingresos)
+			for _, h := range emp.Haberes {
+				if err := db.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: h.Concepto, Monto: h.Monto}).Error; err != nil {
+					warnings = append(warnings, fmt.Sprintf("Error al insertar ingreso '%s' para '%s': %v", h.Concepto, emp.Nombre, err))
+				}
 			}
-		}
-		// Insert descuentos
-		for _, d := range emp.Descuentos {
-			if err := db.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: d.Concepto, Monto: d.Monto}).Error; err != nil {
-				warnings = append(warnings, fmt.Sprintf("Error al insertar descuento '%s' para '%s': %v", d.Concepto, emp.Nombre, err))
+			// Insert descuentos
+			for _, d := range emp.Descuentos {
+				if err := db.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: d.Concepto, Monto: d.Monto}).Error; err != nil {
+					warnings = append(warnings, fmt.Sprintf("Error al insertar descuento '%s' para '%s': %v", d.Concepto, emp.Nombre, err))
+				}
 			}
 		}
 		// Totals are maintained by DB triggers automatically

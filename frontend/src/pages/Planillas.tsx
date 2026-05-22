@@ -123,7 +123,7 @@ export default function Planillas() {
       return
     }
     try {
-      const res = await personalApi.create({ ...newEmpleadoForm, activo: true })
+      const res = await personalApi.create(newEmpleadoForm)
       const created = res.data
       setForm({ ...form, personal_id: created.id })
       setSearchEmpleado(`${created.apellidos} ${created.nombres} ${created.dni ? `(${created.dni})` : ''}`)

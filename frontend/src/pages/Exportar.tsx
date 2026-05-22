@@ -8,7 +8,6 @@ interface Personal {
   nombres: string
   apellidos: string
   puesto?: string
-  activo: boolean
 }
 
 interface Ingreso { id: number; tipo: string; monto: number }
@@ -52,6 +51,8 @@ export default function Exportar() {
   const [loadingAll, setLoadingAll] = useState(false)
   const [periodosData, setPeriodosData] = useState<{años: number[], meses: Record<number, number[]>, total: number} | null>(null)
   const [loadingPeriodos, setLoadingPeriodos] = useState(false)
+  const [selectedMes, setSelectedMes] = useState<number>(0)
+  const [selectedAnio, setSelectedAnio] = useState<number>(0)
 
   const loadPeriodos = useCallback(async (personalId: number) => {
     setLoadingPeriodos(true)
@@ -62,13 +63,13 @@ export default function Exportar() {
     setLoadingPeriodos(false)
   }, [])
 
-  const loadAllPlanillas = useCallback(async (personalId: number) => {
+  const loadAllPlanillas = useCallback(async (personalId: number, mes?: number, anio?: number) => {
     setLoadingAll(true)
     setPlanillasData([])
     setAllPlanillas([])
     setShowPreview(false)
     try {
-      const res = await personalApi.exportar(personalId, undefined, undefined)
+      const res = await personalApi.exportar(personalId, mes, anio)
       const data: PlanillaResponse = res.data
       if (data.planillas) {
         setAllPlanillas(data.planillas)
@@ -106,8 +107,17 @@ export default function Exportar() {
     setShowPreview(false)
     setSelectedPlanilla(null)
     setPeriodosData(null)
+    setSelectedMes(0)
+    setSelectedAnio(0)
+    setExportAll(true)
     loadPeriodos(p.id)
     loadAllPlanillas(p.id)
+  }
+
+  const loadPeriodPlanillas = () => {
+    if (!selectedPerson || !selectedMes || !selectedAnio) return
+    setExportAll(false)
+    loadAllPlanillas(selectedPerson.id, selectedMes, selectedAnio)
   }
 
   const clearSelection = () => {
@@ -247,7 +257,7 @@ export default function Exportar() {
                           <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"><Hash className="w-3 h-3" /> {p.dni || 'Sin DNI'}</span>
                         </div>
                       </div>
-                      <div>{p.activo ? <span className="px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-xs font-semibold">Activo</span> : <span className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-500 rounded-full text-xs font-semibold">Inactivo</span>}</div>
+                      
                     </button>
                   ))}
                 </div>
@@ -267,9 +277,7 @@ export default function Exportar() {
                       <span className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600">{selectedPerson.puesto || 'Sin puesto'}</span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    {selectedPerson.activo ? <span className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl font-semibold text-sm">Activo</span> : <span className="inline-flex items-center gap-2 px-4 py-2 bg-gray-400 text-white rounded-xl font-semibold text-sm">Inactivo</span>}
-                  </div>
+                  
                 </div>
               </div>
             )}
@@ -289,15 +297,37 @@ export default function Exportar() {
             {loadingPeriodos ? (
               <div className="flex items-center justify-center py-8"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div><span className="ml-3 text-gray-500">Cargando...</span></div>
             ) : (
-              <div className="flex gap-3">
-                <button onClick={() => { setExportAll(true); setPlanillasData(allPlanillas); }} className={`px-4 py-2 rounded-lg font-medium transition-all ${exportAll ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'}`}>Todos</button>
-                <button onClick={() => setExportAll(false)} className={`px-4 py-2 rounded-lg font-medium transition-all ${!exportAll ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'}`}>Período</button>
+              <div className="space-y-4">
+                <div className="flex gap-3">
+                  <button onClick={() => { setExportAll(true); setPlanillasData(allPlanillas); setSelectedMes(0); setSelectedAnio(0); }} className={`px-4 py-2 rounded-lg font-medium transition-all ${exportAll ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'}`}>Todos</button>
+                  <button onClick={() => { setExportAll(false); if (periodosData?.años?.length) { setSelectedAnio(periodosData.años[0]); setSelectedMes(periodosData.meses[periodosData.años[0]]?.[0] || 0); } }} className={`px-4 py-2 rounded-lg font-medium transition-all ${!exportAll ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'}`}>Período</button>
+                </div>
+                {!exportAll && (
+                  <div className="flex gap-3 items-end">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Año</label>
+                      <select className="input py-2" value={selectedAnio} onChange={e => { const a = Number(e.target.value); setSelectedAnio(a); setSelectedMes(0); }}>
+                        {periodosData?.años?.map(a => <option key={a} value={a}>{a}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Mes</label>
+                      <select className="input py-2" value={selectedMes} onChange={e => setSelectedMes(Number(e.target.value))}>
+                        <option value={0}>Seleccionar mes</option>
+                        {periodosData?.meses[selectedAnio]?.map(m => <option key={m} value={m}>{MESES[m-1]}</option>)}
+                      </select>
+                    </div>
+                    <button onClick={loadPeriodPlanillas} disabled={!selectedMes || !selectedAnio} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium text-sm hover:bg-red-700 disabled:opacity-50 transition-all">
+                      Ver
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
           <div className="flex gap-3">
-            {selectedPerson && <button onClick={() => loadAllPlanillas(selectedPerson.id)} disabled={loadingAll} className="btn-primary flex items-center gap-2 disabled:opacity-50">{loadingAll ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <RefreshCw className="w-4 h-4" />}<span>Actualizar</span></button>}
+            {selectedPerson && <button onClick={() => exportAll ? loadAllPlanillas(selectedPerson.id) : loadPeriodPlanillas()} disabled={loadingAll} className="btn-primary flex items-center gap-2 disabled:opacity-50">{loadingAll ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <RefreshCw className="w-4 h-4" />}<span>Actualizar</span></button>}
             <button onClick={generateExcel} disabled={!selectedPerson || planillasData.length === 0 || exporting} className="btn-secondary flex items-center gap-2 disabled:opacity-50">
               {exporting ? <div className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin"></div> : <Download className="w-4 h-4" />}
               <span>Exportar Excel</span>
