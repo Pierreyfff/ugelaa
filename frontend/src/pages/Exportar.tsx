@@ -8,6 +8,8 @@ interface Personal {
   nombres: string
   apellidos: string
   puesto?: string
+  rd?: string
+  uu?: string
 }
 
 interface Ingreso { id: number; tipo: string; monto: number }
@@ -51,7 +53,7 @@ export default function Exportar() {
   const [loadingAll, setLoadingAll] = useState(false)
   const [periodosData, setPeriodosData] = useState<{años: number[], meses: Record<number, number[]>, total: number} | null>(null)
   const [loadingPeriodos, setLoadingPeriodos] = useState(false)
-  const [selectedMes, setSelectedMes] = useState<number>(0)
+  const [selectedMeses, setSelectedMeses] = useState<number[]>([])
   const [selectedAnio, setSelectedAnio] = useState<number>(0)
 
   const loadPeriodos = useCallback(async (personalId: number) => {
@@ -66,13 +68,13 @@ export default function Exportar() {
   const loadAllPlanillas = useCallback(async (personalId: number, mes?: number, anio?: number) => {
     setLoadingAll(true)
     setPlanillasData([])
-    setAllPlanillas([])
     setShowPreview(false)
+    if (!mes && !anio) setAllPlanillas([])
     try {
       const res = await personalApi.exportar(personalId, mes, anio)
       const data: PlanillaResponse = res.data
       if (data.planillas) {
-        setAllPlanillas(data.planillas)
+        if (!mes && !anio) setAllPlanillas(data.planillas)
         setPlanillasData(data.planillas)
         setShowPreview(true)
       }
@@ -107,17 +109,33 @@ export default function Exportar() {
     setShowPreview(false)
     setSelectedPlanilla(null)
     setPeriodosData(null)
-    setSelectedMes(0)
+    setSelectedMeses([])
     setSelectedAnio(0)
     setExportAll(true)
     loadPeriodos(p.id)
     loadAllPlanillas(p.id)
   }
 
+  const loadMesesPlanillas = async (personalId: number, anio: number, meses: number[]) => {
+    setLoadingAll(true)
+    setPlanillasData([])
+    setShowPreview(false)
+    try {
+      const res = await personalApi.exportar(personalId, undefined, anio)
+      const data: PlanillaResponse = res.data
+      if (data.planillas) {
+        const filtered = data.planillas.filter(p => meses.includes(p.mes)).sort((a, b) => a.mes - b.mes)
+        setPlanillasData(filtered)
+        setShowPreview(true)
+      }
+    } catch (e) { console.error(e) }
+    setLoadingAll(false)
+  }
+
   const loadPeriodPlanillas = () => {
-    if (!selectedPerson || !selectedMes || !selectedAnio) return
+    if (!selectedPerson || selectedMeses.length === 0 || !selectedAnio) return
     setExportAll(false)
-    loadAllPlanillas(selectedPerson.id, selectedMes, selectedAnio)
+    loadMesesPlanillas(selectedPerson.id, selectedAnio, selectedMeses)
   }
 
   const clearSelection = () => {
@@ -146,50 +164,83 @@ export default function Exportar() {
     setExporting(false)
   }
 
+  const handlePrint = () => {
+    if (!selectedPerson || planillasData.length === 0) return
+    const htmlContent = generateHTML()
+    const printWindow = window.open('', '_blank')
+    if (printWindow) {
+      printWindow.document.write(htmlContent)
+      printWindow.document.close()
+      printWindow.focus()
+      setTimeout(() => { printWindow.print(); printWindow.close() }, 500)
+    }
+  }
+
   const generateHTML = () => {
     if (!selectedPerson) return ''
-    const totalHaberes = planillasData.reduce((s, p) => s + (p.total_haberes || 0), 0)
-    const totalDescuentos = planillasData.reduce((s, p) => s + (p.total_descuentos || 0), 0)
-    const totalLiquido = planillasData.reduce((s, p) => s + (p.total_liquido || 0), 0)
+    const sorted = [...planillasData].sort((a, b) => a.anio - b.anio || a.mes - b.mes)
+    const totalHaberes = sorted.reduce((s, p) => s + (p.total_haberes || 0), 0)
+    const totalDescuentos = sorted.reduce((s, p) => s + (p.total_descuentos || 0), 0)
+    const totalLiquido = sorted.reduce((s, p) => s + (p.total_liquido || 0), 0)
 
     let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-      body { font-family: Arial, sans-serif; }
-      table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+      body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; padding: 10px; }
+      table { border-collapse: collapse; width: 100%; margin: 0; font-size: 10px; }
+      th, td { border: 1px solid #ddd; padding: 3px 5px; text-align: left; }
       th { background-color: #dc2626; color: white; }
-      .header { background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; padding: 20px; }
-      .section-title { background: #fef2f2; padding: 10px; font-weight: bold; color: #dc2626; }
+      .header { background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; padding: 12px 16px; }
+      .header h1 { margin: 0; font-size: 18px; }
+      .header p { margin: 2px 0 0; font-size: 12px; opacity: .8; }
+      h2 { font-size: 13px; margin: 6px 0; }
+      .section-title { background: #fef2f2; padding: 4px 8px; font-weight: bold; color: #dc2626; }
       .total-row { background: #f0fdf4; font-weight: bold; }
       .negative { color: #dc2626; }
       .positive { color: #16a34a; }
+      .blue { color: #2563eb; }
+      .planilla-grid { display: flex; flex-flow: row wrap; gap: 8px; align-items: flex-start; }
+      .planilla-item { flex: 0 1 auto; min-width: 200px; }
+      @media print {
+        @page { size: landscape; margin: 5mm; }
+        body { font-size: 8pt; padding: 0; }
+        table { font-size: 7pt; }
+        th, td { padding: 2px 3px; }
+        .planilla-item { min-width: 150px; }
+        .header { padding: 6px 10px; }
+        .header h1 { font-size: 12pt; }
+        .header p { font-size: 8pt; }
+        h2 { font-size: 9pt; margin: 4px 0; }
+      }
     </style></head><body>
-    <div class="header"><h1>PLANILLA DE REMUNERACIONES</h1><p>Sistema de Gestión Planillas SU</p></div>
+    <div class="header"><h1>CONSTANCIA DE PAGOS DE HABERES Y DESCUENTOS</h1><p>Sistema de Gestión Planillas SU</p></div>
     <h2>DATOS DEL EMPLEADO</h2>
     <table><tr><th>Apellidos</th><td>${selectedPerson.apellidos}</td></tr>
     <tr><th>Nombres</th><td>${selectedPerson.nombres}</td></tr>
     <tr><th>DNI</th><td>${selectedPerson.dni || 'N/A'}</td></tr>
-    <tr><th>Puesto</th><td>${selectedPerson.puesto || 'N/A'}</td></tr></table>
+    <tr><th>Puesto</th><td>${selectedPerson.puesto || 'N/A'}</td></tr>
+    <tr><th>RD</th><td>${selectedPerson.rd || 'N/A'}</td></tr>
+    <tr><th>UU</th><td>${selectedPerson.uu || 'N/A'}</td></tr></table>
     <h2>RESUMEN GENERAL</h2>
-    <table><tr><th>Total Períodos</th><td>${planillasData.length}</td></tr>
+    <table><tr><th>Total Períodos</th><td>${sorted.length}</td></tr>
     <tr><th>Total Haberes</th><td class="positive">S/ ${totalHaberes.toFixed(2)}</td></tr>
     <tr><th>Total Descuentos</th><td class="negative">S/ ${totalDescuentos.toFixed(2)}</td></tr>
     <tr><th>Líquido Total</th><td class="positive"><strong>S/ ${totalLiquido.toFixed(2)}</strong></td></tr></table>
-    <h2>DETALLE DE PLANILLAS</h2>`
+    <h2>DETALLE DE PLANILLAS</h2>
+    <div class="planilla-grid">`
 
-    planillasData.forEach((planilla) => {
+    sorted.forEach((planilla) => {
       const mesNombre = MESES[planilla.mes - 1]
-      html += `<table><tr class="section-title"><th colspan="3">${mesNombre} - ${planilla.anio}</th></tr>
+      html += `<div class="planilla-item"><table><tr class="section-title"><th colspan="3">${mesNombre} - ${planilla.anio}</th></tr>
       <tr><th colspan="3" style="background:#fef2f2">INGRESOS Y HABERES</th></tr>
       <tr><th>Concepto</th><th>Tipo</th><th>Monto</th></tr>`
-      if (planilla.ingresos) planilla.ingresos.forEach(ing => { html += `<tr><td>${ing.tipo}</td><td>Ingreso</td><td class="positive">S/ ${ing.monto.toFixed(2)}</td></tr>` })
+      if (planilla.ingresos) planilla.ingresos.forEach(ing => { html += `<tr><td>${ing.tipo}</td><td>Ingreso</td><td class="blue">S/ ${ing.monto.toFixed(2)}</td></tr>` })
       html += `<tr class="total-row"><td colspan="2">Subtotal Haberes</td><td class="positive">S/ ${planilla.total_haberes.toFixed(2)}</td></tr>`
       html += `<tr><th colspan="3" style="background:#fef2f2">DESCUENTOS Y DEDUCCIONES</th></tr>
       <tr><th>Concepto</th><th>Tipo</th><th>Monto</th></tr>`
       if (planilla.descuentos) planilla.descuentos.forEach(desc => { html += `<tr><td>${desc.tipo}</td><td>Descuento</td><td class="negative">S/ ${desc.monto.toFixed(2)}</td></tr>` })
       html += `<tr class="total-row"><td colspan="2">Subtotal Descuentos</td><td class="negative">S/ ${planilla.total_descuentos.toFixed(2)}</td></tr>
-      <tr class="total-row"><td colspan="2"><strong>Líquido del Período</strong></td><td class="positive"><strong>S/ ${planilla.total_liquido.toFixed(2)}</strong></td></tr></table>`
+      <tr class="total-row"><td colspan="2"><strong>Líquido del Período</strong></td><td class="positive"><strong>S/ ${planilla.total_liquido.toFixed(2)}</strong></td></tr></table></div>`
     })
-    html += `<p style="margin-top:20px;color:#666;font-size:12px">Exportado el: ${new Date().toLocaleString('es-PE')} | Sistema Planillas SU</p></body></html>`
+    html += `</div><p style="margin-top:20px;color:#666;font-size:12px">Exportado el: ${new Date().toLocaleString('es-PE')} | Sistema Planillas SU</p></body></html>`
     return html
   }
 
@@ -299,25 +350,33 @@ export default function Exportar() {
             ) : (
               <div className="space-y-4">
                 <div className="flex gap-3">
-                  <button onClick={() => { setExportAll(true); setPlanillasData(allPlanillas); setSelectedMes(0); setSelectedAnio(0); }} className={`px-4 py-2 rounded-lg font-medium transition-all ${exportAll ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'}`}>Todos</button>
-                  <button onClick={() => { setExportAll(false); if (periodosData?.años?.length) { setSelectedAnio(periodosData.años[0]); setSelectedMes(periodosData.meses[periodosData.años[0]]?.[0] || 0); } }} className={`px-4 py-2 rounded-lg font-medium transition-all ${!exportAll ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'}`}>Período</button>
+                  <button onClick={() => { setExportAll(true); setPlanillasData(allPlanillas); setSelectedMeses([]); setSelectedAnio(0); }} className={`px-4 py-2 rounded-lg font-medium transition-all ${exportAll ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'}`}>Todos</button>
+                  <button onClick={() => { setExportAll(false); if (periodosData?.años?.length) { setSelectedAnio(periodosData.años[0]); setSelectedMeses([]); } }} className={`px-4 py-2 rounded-lg font-medium transition-all ${!exportAll ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'}`}>Período(s)</button>
                 </div>
                 {!exportAll && (
-                  <div className="flex gap-3 items-end">
+                  <div className="space-y-4">
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Año</label>
-                      <select className="input py-2" value={selectedAnio} onChange={e => { const a = Number(e.target.value); setSelectedAnio(a); setSelectedMes(0); }}>
+                      <select className="input py-2" value={selectedAnio} onChange={e => { const a = Number(e.target.value); setSelectedAnio(a); setSelectedMeses([]); }}>
                         {periodosData?.años?.map(a => <option key={a} value={a}>{a}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Mes</label>
-                      <select className="input py-2" value={selectedMes} onChange={e => setSelectedMes(Number(e.target.value))}>
-                        <option value={0}>Seleccionar mes</option>
-                        {periodosData?.meses[selectedAnio]?.map(m => <option key={m} value={m}>{MESES[m-1]}</option>)}
-                      </select>
+                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Meses {selectedMeses.length > 0 && <span className="text-red-600">({selectedMeses.length} seleccionado{selectedMeses.length !== 1 ? 's' : ''})</span>}</label>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                        {MESES.map((m, i) => {
+                          const mesNum = i + 1
+                          const hasData = periodosData?.meses[selectedAnio]?.includes(mesNum)
+                          const isSelected = selectedMeses.includes(mesNum)
+                          return (
+                            <button key={mesNum} type="button" onClick={() => { setSelectedMeses(prev => { if (prev.includes(mesNum)) return prev.filter(x => x !== mesNum); return [...prev, mesNum].sort((a, b) => a - b) }) }} className={`py-2 px-1 rounded-lg text-xs font-medium transition-all border ${isSelected ? 'bg-red-600 text-white border-red-600' : hasData ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-200' : 'bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-gray-100 dark:border-gray-700'}`}>
+                              {m}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
-                    <button onClick={loadPeriodPlanillas} disabled={!selectedMes || !selectedAnio} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium text-sm hover:bg-red-700 disabled:opacity-50 transition-all">
+                    <button onClick={loadPeriodPlanillas} disabled={selectedMeses.length === 0 || !selectedAnio} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium text-sm hover:bg-red-700 disabled:opacity-50 transition-all">
                       Ver
                     </button>
                   </div>
@@ -328,6 +387,10 @@ export default function Exportar() {
 
           <div className="flex gap-3">
             {selectedPerson && <button onClick={() => exportAll ? loadAllPlanillas(selectedPerson.id) : loadPeriodPlanillas()} disabled={loadingAll} className="btn-primary flex items-center gap-2 disabled:opacity-50">{loadingAll ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <RefreshCw className="w-4 h-4" />}<span>Actualizar</span></button>}
+            <button onClick={handlePrint} disabled={!selectedPerson || planillasData.length === 0} className="btn-secondary flex items-center gap-2 disabled:opacity-50">
+              <Printer className="w-4 h-4" />
+              <span>Imprimir</span>
+            </button>
             <button onClick={generateExcel} disabled={!selectedPerson || planillasData.length === 0 || exporting} className="btn-secondary flex items-center gap-2 disabled:opacity-50">
               {exporting ? <div className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin"></div> : <Download className="w-4 h-4" />}
               <span>Exportar Excel</span>

@@ -274,7 +274,7 @@ func ListarPlanillas(c *gin.Context) {
 	}
 	if anio != "" {
 		anioInt, _ := strconv.Atoi(anio)
-		if anioInt > 2000 {
+		if anioInt > 0 {
 			baseQuery = baseQuery.Where("anio = ?", anioInt)
 		}
 	}
@@ -864,14 +864,6 @@ func ImportarHaberes(c *gin.Context) {
 		return
 	}
 
-	// Check if any planilla already exists for this period
-	var count int64
-	db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", mes, anio).Count(&count)
-	if count > 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Este mes y año ya fue importado antes: %d/%d", mes, anio)})
-		return
-	}
-
 	personalCreados := 0
 	personalActualizados := 0
 	planillasCreadas := 0
@@ -1183,7 +1175,7 @@ func ExportarPlanillasPersonal(c *gin.Context) {
 	}
 	if anio != "" {
 		anioInt, _ := strconv.Atoi(anio)
-		if anioInt > 2000 {
+		if anioInt > 0 {
 			baseQuery = baseQuery.Where("anio = ?", anioInt)
 		}
 	}
