@@ -19,6 +19,8 @@ interface Planilla {
   personal_id: number
   mes: number
   anio: number
+  institucion: string
+  distrito: string
   total_haberes: number
   total_descuentos: number
   total_liquido: number
@@ -159,6 +161,9 @@ export default function Exportar() {
     <tr><th>Nombres</th><td>${selectedPerson.nombres}</td></tr>
     <tr><th>DNI</th><td>${selectedPerson.dni || 'N/A'}</td></tr>
     <tr><th>Puesto</th><td>${selectedPerson.puesto || 'N/A'}</td></tr></table>
+    <h2>DATOS DE LA PLANILLA</h2>
+    <table><tr><th>Institución</th><td>${planillasData[0]?.institucion || 'N/A'}</td></tr>
+    <tr><th>Distrito</th><td>${planillasData[0]?.distrito || 'N/A'}</td></tr></table>
     <h2>RESUMEN GENERAL</h2>
     <table><tr><th>Total Períodos</th><td>${planillasData.length}</td></tr>
     <tr><th>Total Haberes</th><td class="positive">S/ ${totalHaberes.toFixed(2)}</td></tr>
@@ -317,6 +322,20 @@ export default function Exportar() {
                   <div className="px-4 py-2 bg-red-600 text-white rounded-xl"><p className="text-xs text-white/80 font-medium">Líquido Total</p><p className="text-lg font-bold">{formatCurrency(planillasData.reduce((s, p) => s + (p.total_liquido || 0), 0))}</p></div>
                 </div>
               </div>
+              {planillasData[0]?.institucion && (
+                <div className="flex flex-wrap gap-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600">
+                  <div>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Institución</span>
+                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{planillasData[0].institucion}</p>
+                  </div>
+                  {planillasData[0]?.distrito && (
+                    <div>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Distrito</span>
+                      <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{planillasData[0].distrito}</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -16,6 +16,32 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 DNI_PATTERN = re.compile(r"DNI\s*(\d+)", re.IGNORECASE)
 IGNORAR_CONCEPTOS = {"REINTEGRO", "ESCOLARIDAD", "AGUINALDO", "DETALLE"}
 
+DISTRITOS_CAÑETE = {
+    # Capital (con y sin ñ, con y sin DE)
+    "SAN VICENTE", "SAN VICENTE DE CAÑETE", "SAN VICENTE DE CANETE",
+    "SAN VICENTE CAÑETE", "SAN VICENTE CANETE",
+    "CANETE", "CAÑETE",
+    # Distritos de la provincia de Cañete
+    "IMPERIAL", "NUEVO IMPERIAL", "NVO IMPERIAL", "NVO. IMPERIAL",
+    "LUNAHUANA", "QUILMANA", "ZUNIGA",
+    "PACARAN", "COAYLLO",
+    "SANTA CRUZ DE FLORES", "SANTA CRUZ",
+    "CHILCA", "MALA", "ASIA", "CERRO AZUL",
+    "SAN LUIS", "CALANGO", "SAN ANTONIO",
+}
+
+
+def normalizar_distrito(nombre: str) -> str:
+    """Normalize district name: uppercase and replace ñ→N."""
+    return nombre.upper().replace("Ñ", "N")
+
+# Patrones para detectar cargos/puestos (evita que se mezclen con el nombre)
+CARGO_PATTERN = re.compile(
+    r"^(PROF|AUX|TRAB|SERV|D\d|AUXILIAR|DOCENTE|DIRECTOR|JEFE|COORDINADOR|"
+    r"SUB\s+DIRECTOR|PRACTICANTE|APOYO|ESPECIALISTA|TECNICO|ADMINISTRATIVO)",
+    re.IGNORECASE,
+)
+
 
 def parsear_valor(v):
     if v is None:
@@ -29,6 +55,49 @@ def parsear_valor(v):
 
 def limpiar_concepto(c: str) -> str:
     return c.strip().lstrip("+").strip().upper()
+
+
+def analizar_duplicados(empleados: list) -> dict:
+    dni_count = {}
+    nombre_count = {}
+    dni_empleados = {}
+    nombre_empleados = {}
+    
+    for emp in empleados:
+        dni = emp.get("dni")
+        nombre = emp.get("nombre")
+        monto = emp.get("total_liquido")
+        
+        if dni:
+            if dni not in dni_count:
+                dni_count[dni] = 0
+                dni_empleados[dni] = []
+            dni_count[dni] += 1
+            dni_empleados[dni].append({"nombre": nombre, "monto": monto})
+        
+        if nombre:
+            if nombre not in nombre_count:
+                nombre_count[nombre] = 0
+                nombre_empleados[nombre] = []
+            nombre_count[nombre] += 1
+            nombre_empleados[nombre].append({"dni": dni, "monto": monto})
+    
+    dnis_duplicados = [(dni, count) for dni, count in dni_count.items() if count > 1]
+    nombres_duplicados = [(nombre, count) for nombre, count in nombre_count.items() if count > 1]
+    
+    return {
+        "dnis_duplicados": [{"dni": dni, "count": count, "empleados": dni_empleados[dni]} for dni, count in dnis_duplicados],
+        "nombres_duplicados": [{"nombre": nombre, "count": count, "empleados": nombre_empleados[nombre]} for nombre, count in nombres_duplicados],
+    }
+
+
+def calcular_monto_total(empleados: list) -> float:
+    total = 0.0
+    for emp in empleados:
+        liquido = emp.get("total_liquido")
+        if liquido:
+            total += float(liquido)
+    return round(total, 2)
 
 
 def extraer_dni(texto: str):
@@ -66,6 +135,69 @@ def _leer_filas(filepath: str) -> list:
         return list(ws.iter_rows(values_only=True))
 
 
+def escanear_encabezado(filas: list) -> tuple:
+    """
+    Scan header rows (before the first HABERES) to find global institution
+    name and district for the entire file.
+    Returns (institucion, distrito).
+    """
+    institucion = None
+    distrito = None
+    max_scan = min(30, len(filas))
+
+    for i in range(max_scan):
+        f = filas[i]
+        a = str(f[0]).strip() if f[0] else ""
+        b = str(f[1]).strip() if len(f) > 1 and f[1] else ""
+        c = str(f[2]).strip() if len(f) > 2 and f[2] else ""
+
+        if a.upper() == "HABERES" and b:
+            break
+
+        b_norm = normalizar_distrito(b) if b else ""
+
+        # ── District keyword in Col A → Col B is the value ───────────────
+        if "DISTRITO" in a.upper() and b:
+            distrito = b_norm
+        # ── District inline in Col B ─────────────────────────────────────
+        elif "DISTRITO" in b.upper() and not distrito:
+            m = re.search(r"DISTRITO\s*:?\s*(.+)", b, re.IGNORECASE)
+            if m and m.group(1).strip():
+                distrito = normalizar_distrito(m.group(1).strip())
+        # ── Fallback: plain Col B matches district set ───────────────────
+        elif b and not distrito and b_norm in DISTRITOS_CAÑETE:
+            distrito = b_norm
+
+        # ── Institution keyword in Col A → Col B is the value ────────────
+        if re.search(r"(?:INSTITUCION|I\.?\s*E\.?\s*|COLEGIO|ESCUELA)", a.upper()):
+            if b:
+                institucion = b
+        # ── Institution inline in Col B ──────────────────────────────────
+        elif (b and not institucion
+              and re.search(r"(?:INSTITUCION|I\.?\s*E\.?\s*|COLEGIO|ESCUELA)", b.upper())):
+            m = re.search(
+                r"(?:INSTITUCION|I\.?\s*E\.?|COLEGIO|ESCUELA)\s*[:\-]?\s*(.+)",
+                b, re.IGNORECASE
+            )
+            if m and m.group(1).strip():
+                institucion = m.group(1).strip()
+        # ── Fallback: plain Col B (non-trash) → institution ──────────────
+        elif b and not institucion:
+            ignore = (
+                b_norm in DISTRITOS_CAÑETE
+                or b.upper() in ("HABERES", "DSCTOS", "TOTAL HABERES",
+                                 "TOTAL DESCUENTOS", "TOTAL LIQUIDO")
+                or re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.)", b.upper())
+                or re.match(r"^[ui]u-", b.upper())
+                or CARGO_PATTERN.match(b.upper())
+                or extraer_dni(b)
+            )
+            if not ignore:
+                institucion = b
+
+    return institucion, distrito
+
+
 def extraer_empleados(filepath: str) -> list:
     """
     Parse a payroll Excel with vertical-block layout:
@@ -86,6 +218,9 @@ def extraer_empleados(filepath: str) -> list:
     """
     filas = _leer_filas(filepath)
 
+    # Scan header for global institution / district
+    global_institucion, global_distrito = escanear_encabezado(filas)
+
     empleados = []
     i = 0
     n = len(filas)
@@ -95,8 +230,38 @@ def extraer_empleados(filepath: str) -> list:
         col_a = str(fila[0]).strip() if fila[0] else ""
 
         if col_a == "HABERES" and len(fila) > 1 and fila[1]:
+            # Institution name: scan up to 3 rows before HABERES, fallback to header
+            institucion = global_institucion
+            for j in range(1, 4):
+                if i - j < 0:
+                    break
+                prev = filas[i - j]
+                pa = str(prev[0]).strip() if prev[0] else ""
+                pb = str(prev[1]).strip() if len(prev) > 1 and prev[1] else ""
+                if not pb and not pa:
+                    continue
+                # If prev row has institution keyword in Col A → Col B is the value
+                if re.search(r"(?:INSTITUCION|I\.?\s*E\.?\s*|COLEGIO|ESCUELA)", pa.upper()):
+                    if pb:
+                        institucion = pb
+                    break
+                # If Col B is non-trash and not a district/cargo/DNI → institution
+                if pb and pb not in ("HABERES", "DSCTOS", "TOTAL HABERES", "TOTAL DESCUENTOS", "TOTAL LIQUIDO"):
+                    pb_norm = normalizar_distrito(pb)
+                    if (pb_norm not in DISTRITOS_CAÑETE
+                            and not CARGO_PATTERN.match(pb.upper())
+                            and not extraer_dni(pb)
+                            and not re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.)", pb.upper())
+                            and not re.match(r"^[ui]u-", pb.upper())):
+                        institucion = pb
+                        break
+
+            nombre_completo = str(fila[1]).strip()
+
             emp = {
-                "nombre": str(fila[1]).strip(),
+                "nombre": nombre_completo,
+                "institucion": institucion,
+                "distrito": None,
                 "cargo": None,
                 "resolucion": None,
                 "codigo": None,
@@ -107,6 +272,33 @@ def extraer_empleados(filepath: str) -> list:
                 "total_descuentos": None,
                 "total_liquido": None,
             }
+
+            # District override: scan up to 3 rows before HABERES
+            for j in range(1, 4):
+                if i - j < 0:
+                    break
+                prev = filas[i - j]
+                pa = str(prev[0]).strip() if prev[0] else ""
+                pb = str(prev[1]).strip() if len(prev) > 1 and prev[1] else ""
+                # Check Col B for district match
+                if pb:
+                    pb_norm = normalizar_distrito(pb)
+                    if pb_norm in DISTRITOS_CAÑETE:
+                        if emp["distrito"] is None:
+                            emp["distrito"] = pb
+                        break
+                # Check Col A for inline district (e.g. "DISTRITO: SAN VICENTE")
+                if "DISTRITO" in pa.upper():
+                    m = re.search(r"DISTRITO\s*:?\s*(.+)", pa, re.IGNORECASE)
+                    if m and m.group(1).strip():
+                        d = normalizar_distrito(m.group(1).strip())
+                        if d in DISTRITOS_CAÑETE and emp["distrito"] is None:
+                            emp["distrito"] = m.group(1).strip()
+                        break
+
+            # States: "name" → "distrito" → "cargo"
+            expecting = "name"
+            name_parts = 0
 
             concepto_inicial = str(fila[2]).strip() if len(fila) > 2 and fila[2] else ""
             valor_inicial = parsear_valor(fila[3] if len(fila) > 3 else None)
@@ -151,12 +343,45 @@ def extraer_empleados(filepath: str) -> list:
                     dni_encontrado = extraer_dni(b)
                     if dni_encontrado:
                         emp["dni"] = dni_encontrado
-                    elif re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.)\s*[\d\-/]", b, re.IGNORECASE):
+                        if expecting == "name" or expecting == "distrito":
+                            expecting = "cargo"
+                    elif re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.)\w*\s*[\d\-./A-Za-z]+", b, re.IGNORECASE):
                         emp["resolucion"] = b
-                    elif re.match(r"^uu-", b, re.IGNORECASE):
+                        if expecting == "name" or expecting == "distrito":
+                            expecting = "cargo"
+                    elif re.match(r"^[ui]u-", b, re.IGNORECASE):
                         emp["codigo"] = b
+                        if expecting == "name" or expecting == "distrito":
+                            expecting = "cargo"
                     elif not re.match(r"^(TOTAL|DSCTOS)", b, re.IGNORECASE):
-                        if emp["cargo"] is None:
+                        b_upper = b.upper()
+                        b_norm = normalizar_distrito(b)
+                        es_cargo = "." in b or CARGO_PATTERN.match(b_upper)
+                        if expecting == "name":
+                            if b_norm in DISTRITOS_CAÑETE:
+                                emp["distrito"] = b
+                                expecting = "cargo"
+                            elif es_cargo:
+                                emp["cargo"] = b
+                                expecting = "cargo"
+                            elif name_parts < 1:
+                                nombre_completo += " " + b
+                                emp["nombre"] = nombre_completo
+                                name_parts += 1
+                            else:
+                                emp["distrito"] = b
+                                expecting = "cargo"
+                        elif expecting in ("distrito",):
+                            if es_cargo:
+                                emp["cargo"] = b
+                                expecting = "cargo"
+                            else:
+                                emp["distrito"] = b
+                                expecting = "cargo"
+                        elif b_norm in DISTRITOS_CAÑETE:
+                            if not emp["distrito"] or emp["distrito"] == global_distrito:
+                                emp["distrito"] = b
+                        elif emp["cargo"] is None:
                             emp["cargo"] = b
 
                 if c_cell:
@@ -171,11 +396,52 @@ def extraer_empleados(filepath: str) -> list:
 
                 i += 1
 
+            # Fallback to global district if not detected per-employee
+            if emp["distrito"] is None:
+                emp["distrito"] = global_distrito
+
             empleados.append(emp)
             continue
 
         i += 1
 
+    # Post-processing: extraer cargo desde el final de nombre
+    CARGO_EN_NOMBRE = re.compile(
+        r"\s+(?:PROF\.?\s*(?:DE\s+AULA|POR\s+HORA)\s*|"
+        r"AUX\.?\s*(?:DE\s+EDUC\.?\w*|EDUCACION|EDUCAC\.?)\s*|"
+        r"TRAB\.?\s*SERV\.?\w*\s*|"
+        r"D\d+|"
+        r"AUXILIAR|DOCENTE|DIRECTOR|JEFE|COORDINADOR|"
+        r"ESPECIALISTA|TECNICO|ADMINISTRATIVO|PRACTICANTE|APOYO)\s*$",
+        re.IGNORECASE,
+    )
+    for emp in empleados:
+        # ── Extract cargo from end of nombre ──────────────────────────
+        m = CARGO_EN_NOMBRE.search(emp["nombre"])
+        if m:
+            cargo_from_nombre = m.group(0).strip()
+            nombre_limpio = emp["nombre"][: m.start()].strip()
+            if not emp["cargo"] or not "." in emp["cargo"] and not CARGO_PATTERN.match(emp["cargo"].upper()):
+                emp["cargo"] = cargo_from_nombre
+                emp["nombre"] = nombre_limpio
+
+        # ── Extract district from end of nombre ───────────────────────
+        palabras = emp["nombre"].split()
+        extraidos = []
+        while True:
+            encontrado = False
+            for fin in range(len(palabras), 0, -1):
+                candidato = " ".join(palabras[fin - 1:])
+                if normalizar_distrito(candidato) in DISTRITOS_CAÑETE:
+                    extraidos.insert(0, candidato)
+                    palabras = palabras[:fin - 1]
+                    encontrado = True
+                    break
+            if not encontrado:
+                break
+        if extraidos:
+            emp["distrito"] = " ".join(extraidos)
+            emp["nombre"] = " ".join(palabras)
     return empleados
 
 
@@ -212,6 +478,9 @@ def process_excel():
 
     try:
         empleados = extraer_empleados(filepath)
+        
+        analisis = analizar_duplicados(empleados)
+        monto_total = calcular_monto_total(empleados)
 
         payload = {
             "mes": mes,
@@ -223,7 +492,7 @@ def process_excel():
         response = requests.post(
             f"{BACKEND_URL}/api/importar/haberes",
             json=payload,
-            timeout=60,
+            timeout=300,
         )
 
         if response.status_code == 200:
@@ -235,6 +504,11 @@ def process_excel():
                 "personal": len(empleados),
                 "planillas": len(empleados),
                 "errores": resp_data.get("errores", []),
+                "personal_actualizados": resp_data.get("personal_actualizados", 0),
+                "dnis_duplicados": analisis["dnis_duplicados"],
+                "nombres_duplicados": analisis["nombres_duplicados"],
+                "monto_total": monto_total,
+                "duplicados": resp_data.get("duplicados", []),
             })
         else:
             return jsonify({
@@ -242,6 +516,44 @@ def process_excel():
                 "details": response.text,
             }), response.status_code
 
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+
+@app.route("/debug-excel", methods=["POST"])
+def debug_excel():
+    """
+    Debug endpoint: returns the FULL raw extraction as JSON (no import).
+    Useful for testing field extraction without committing to the database.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No se encontró archivo"}), 400
+
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"error": "Archivo sin nombre"}), 400
+
+    filename = secure_filename(file.filename)
+    if not filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({"error": "Solo se aceptan archivos Excel (.xlsx, .xls)"}), 400
+
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(filepath)
+
+    try:
+        empleados = extraer_empleados(filepath)
+        analisis = analizar_duplicados(empleados)
+        monto_total = calcular_monto_total(empleados)
+
+        return jsonify({
+            "total_empleados": len(empleados),
+            "empleados": empleados,
+            "analisis_duplicados": analisis,
+            "monto_total": monto_total,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -267,10 +579,16 @@ def validate_excel():
 
     try:
         empleados = extraer_empleados(filepath)
+        analisis = analizar_duplicados(empleados)
+        monto_total = calcular_monto_total(empleados)
+        
         return jsonify({
             "valid": True,
             "total_empleados": len(empleados),
             "preview": empleados[:5],
+            "dnis_duplicados": analisis["dnis_duplicados"],
+            "nombres_duplicados": analisis["nombres_duplicados"],
+            "monto_total": monto_total,
         })
     except Exception as e:
         return jsonify({"valid": False, "error": str(e)}), 400

@@ -34,6 +34,8 @@ type Planilla struct {
 	Personal        Personal    `json:"personal,omitempty" gorm:"foreignKey:PersonalID"`
 	Mes             int16       `json:"mes" gorm:"not null"`
 	Anio            int16       `json:"anio" gorm:"not null"`
+	Institucion     string      `json:"institucion" gorm:"size:200"`
+	Distrito        string      `json:"distrito" gorm:"size:150"`
 	TotalHaberes    float64     `json:"total_haberes" gorm:"default:0"`
 	TotalDescuentos float64     `json:"total_descuentos" gorm:"default:0"`
 	TotalLiquido    float64     `json:"total_liquido" gorm:"-"`
@@ -69,12 +71,14 @@ type DataExcel struct {
 }
 
 type PlanillaImport struct {
-	DNI        string            `json:"dni"`
-	Nombres    string            `json:"nombres"`
-	Mes        int               `json:"mes"`
-	Anio       int               `json:"anio"`
-	Ingresos   []IngresoImport   `json:"ingresos"`
-	Descuentos []DescuentoImport `json:"descuentos"`
+	DNI         string            `json:"dni"`
+	Nombres     string            `json:"nombres"`
+	Mes         int               `json:"mes"`
+	Anio        int               `json:"anio"`
+	Institucion string            `json:"institucion"`
+	Distrito    string            `json:"distrito"`
+	Ingresos    []IngresoImport   `json:"ingresos"`
+	Descuentos  []DescuentoImport `json:"descuentos"`
 }
 
 type IngresoImport struct {
@@ -98,6 +102,8 @@ type HaberesPayload struct {
 
 type EmpleadoHaber struct {
 	Nombre          string         `json:"nombre"`
+	Institucion     *string        `json:"institucion"`
+	Distrito        *string        `json:"distrito"`
 	Cargo           *string        `json:"cargo"`
 	Resolucion      *string        `json:"resolucion"`
 	Codigo          *string        `json:"codigo"`

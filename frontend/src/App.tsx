@@ -2,8 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { useState, createContext, useContext, useEffect } from 'react'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
-import Personal from './pages/Personal'
-import Planillas from './pages/Planillas'
+import Planillas from './pages/Personal'
 import Importar from './pages/Importar'
 import Exportar from './pages/Exportar'
 import Auth from './pages/Auth'
@@ -56,7 +55,6 @@ function AppContent() {
         <Route path="/auth" element={isAuthenticated ? <Navigate to="/" replace /> : <Auth />} />
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
-          <Route path="personal" element={<Personal />} />
           <Route path="planillas" element={<Planillas />} />
           <Route path="importar" element={<Importar />} />
           <Route path="exportar" element={<Exportar />} />

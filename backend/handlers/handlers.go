@@ -135,6 +135,15 @@ func ListarPersonal(c *gin.Context) {
 		baseQuery = baseQuery.Where("uu ILIKE ?", "%"+uu+"%")
 	}
 
+	// Filtro por mes/año de creación
+	mes := c.Query("mes")
+	anio := c.Query("anio")
+	if mes != "" && anio != "" {
+		baseQuery = baseQuery.Where("EXTRACT(MONTH FROM created_at) = ? AND EXTRACT(YEAR FROM created_at) = ?", mes, anio)
+	} else if anio != "" {
+		baseQuery = baseQuery.Where("EXTRACT(YEAR FROM created_at) = ?", anio)
+	}
+
 	baseQuery.Count(&total)
 	
 	// Ordenar dinámicamente
@@ -376,9 +385,11 @@ func EditarPlanillaCompleta(c *gin.Context) {
 	}
 
 	var input struct {
-		PersonalID uint   `json:"personal_id"`
-		Mes        int16  `json:"mes"`
-		Anio       int16  `json:"anio"`
+		PersonalID  uint   `json:"personal_id"`
+		Mes         int16  `json:"mes"`
+		Anio        int16  `json:"anio"`
+		Institucion string `json:"institucion"`
+		Distrito    string `json:"distrito"`
 		Ingresos   []struct {
 			ID    uint    `json:"id"`
 			Tipo  string  `json:"tipo"`
@@ -406,6 +417,12 @@ func EditarPlanillaCompleta(c *gin.Context) {
 	}
 	if input.Anio > 0 {
 		updates["anio"] = input.Anio
+	}
+	if input.Institucion != "" {
+		updates["institucion"] = input.Institucion
+	}
+	if input.Distrito != "" {
+		updates["distrito"] = input.Distrito
 	}
 
 	if len(updates) > 0 {
@@ -697,10 +714,12 @@ func importarData(db *gorm.DB, data *models.DataExcel) (int, int, []string) {
 
 		if planilla.ID == 0 {
 			planilla = models.Planilla{
-				PersonalID: personalID,
-				Mes:        int16(pl.Mes),
-				Anio:       int16(pl.Anio),
-				CreadoEn:   time.Now(),
+				PersonalID:  personalID,
+				Mes:         int16(pl.Mes),
+				Anio:        int16(pl.Anio),
+				Institucion: pl.Institucion,
+				Distrito:    pl.Distrito,
+				CreadoEn:    time.Now(),
 			}
 			db.Create(&planilla)
 			planillasCreadas++
@@ -944,11 +963,21 @@ func ImportarHaberes(c *gin.Context) {
 		}
 
 		if planilla.ID == 0 {
+			inst := ""
+			if emp.Institucion != nil {
+				inst = *emp.Institucion
+			}
+			dist := ""
+			if emp.Distrito != nil {
+				dist = *emp.Distrito
+			}
 			planilla = models.Planilla{
-				PersonalID: personal.ID,
-				Mes:        int16(mes),
-				Anio:       int16(anio),
-				CreadoEn:   time.Now(),
+				PersonalID:  personal.ID,
+				Mes:         int16(mes),
+				Anio:        int16(anio),
+				Institucion: inst,
+				Distrito:    dist,
+				CreadoEn:    time.Now(),
 			}
 			if err := db.Create(&planilla).Error; err != nil {
 				fmt.Printf("[DEBUG] Error creating planilla for personal_id=%d: %v\n", personal.ID, err)

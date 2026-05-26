@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+<<<<<<< Updated upstream
 import { dashboardApi } from '../services/api'
 import { Link } from 'react-router-dom'
 import { Users, FileSpreadsheet, Calendar, ArrowRight, Activity, TrendingUp, TrendingDown, DollarSign, Plus, FileText } from 'lucide-react'
@@ -14,14 +15,30 @@ interface Resumen {
 
 export default function Dashboard() {
   const [data, setData] = useState<Resumen | null>(null)
+=======
+import { personalApi } from '../services/api'
+import { Users, TrendingUp, UserPlus } from 'lucide-react'
+
+interface PersonalCount {
+  data: any[]
+  total: number
+}
+
+export default function Dashboard() {
+  const [totalPersonal, setTotalPersonal] = useState(0)
+>>>>>>> Stashed changes
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    dashboardApi.getResumen()
-      .then(res => setData(res.data))
+    personalApi.list('', 1, 1, 'apellidos', 'asc')
+      .then((res: { data: PersonalCount }) => {
+        setTotalPersonal(res.data.total)
+      })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  const mesActual = new Date().toLocaleDateString('es-PE', { month: 'long', year: 'numeric' })
 
   if (loading) {
     return (
@@ -37,6 +54,7 @@ export default function Dashboard() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Bienvenido de nuevo</h2>
             <p className="text-gray-500 dark:text-gray-400 mt-1">Resumen de tu sistema de nóminas</p>
           </div>
+<<<<<<< Updated upstream
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[...Array(4)].map((_, key) => (
@@ -48,6 +66,16 @@ export default function Dashboard() {
                 </div>
                 <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse"></div>
               </div>
+=======
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Resumen general del sistema</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {[...Array(2)].map((_, i) => (
+            <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-700">
+              <div className="skeleton w-24 h-4 mb-3"></div>
+              <div className="skeleton w-20 h-8"></div>
+>>>>>>> Stashed changes
             </div>
           ))}
         </div>
@@ -108,6 +136,7 @@ export default function Dashboard() {
             <p className="text-sm font-bold text-gray-900 dark:text-white">{currentMonth}</p>
           </div>
         </div>
+<<<<<<< Updated upstream
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -316,12 +345,42 @@ export default function Dashboard() {
               <span className="font-bold text-red-700 dark:text-red-400">{formatCurrency(data?.total_liquido || 0)}</span>
             </div>
           </div>
+=======
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h2>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">Resumen general del sistema</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-semibold uppercase tracking-wider text-red-100">Total Personal Docente</span>
+            <div className="p-2 bg-white/20 rounded-lg">
+              <Users className="w-5 h-5 text-white" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold">{totalPersonal}</p>
+          <p className="text-xs text-red-100 mt-2">Docentes, auxiliares y trabajadores registrados</p>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Período Actual</span>
+            <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+              <UserPlus className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white capitalize">{mesActual}</p>
+          <p className="text-xs text-gray-500 mt-2">Gestión de planilla activa</p>
+>>>>>>> Stashed changes
         </div>
       </div>
     </div>
   )
 }
+<<<<<<< Updated upstream
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(value)
 }
+=======
+>>>>>>> Stashed changes

@@ -5,8 +5,7 @@ import { useAuth } from '../App'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', desc: 'Resumen general' },
-  { to: '/personal', icon: Users, label: 'Personal', desc: 'Gestión de empleados' },
-  { to: '/planillas', icon: FileSpreadsheet, label: 'Planillas', desc: 'Nóminas y pagos' },
+  { to: '/planillas', icon: Users, label: 'Planillas', desc: 'Personal docente' },
   { to: '/importar', icon: Upload, label: 'Importar', desc: 'Importar datos' },
   { to: '/exportar', icon: Download, label: 'Exportar', desc: 'Exportar planillas' },
 ]

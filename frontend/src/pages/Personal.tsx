@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { personalApi } from '../services/api'
+<<<<<<< Updated upstream
 import { Search, Plus, Pencil, Trash2, X, User, Briefcase, Hash, Building, Tag, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+=======
+import { Search, Plus, Pencil, Trash2, X, User, Users, Hash, Briefcase, Building, Tag, ChevronLeft, ChevronRight, AlertTriangle, Filter } from 'lucide-react'
+>>>>>>> Stashed changes
 
 interface Personal {
   id: number
@@ -21,19 +25,44 @@ interface PaginationData {
   total_pages: number
 }
 
+<<<<<<< Updated upstream
+=======
+const MESES = ['Todos los meses', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
+const MESES_VALOR = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
+const ANIOS = Array.from({ length: new Date().getFullYear() - 1990 }, (_, i) => 1991 + i).reverse()
+
+>>>>>>> Stashed changes
 export default function Personal() {
   const [personal, setPersonal] = useState<Personal[]>([])
   const [loading, setLoading] = useState(true)
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+<<<<<<< Updated upstream
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all')
+=======
+
+>>>>>>> Stashed changes
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
+
+  const [filtroMes, setFiltroMes] = useState<number>(0)
+  const [filtroAnio, setFiltroAnio] = useState<number>(new Date().getFullYear())
+
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Personal | null>(null)
   const [form, setForm] = useState({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '', activo: true })
   const [errors, setErrors] = useState<{ nombres?: string; apellidos?: string }>({})
+<<<<<<< Updated upstream
+=======
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [deletingName, setDeletingName] = useState('')
+  const [deleting, setDeleting] = useState(false)
+>>>>>>> Stashed changes
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -45,11 +74,19 @@ export default function Personal() {
 
   useEffect(() => {
     loadPersonal()
+<<<<<<< Updated upstream
   }, [debouncedSearch, page, filterStatus])
 
   const loadPersonal = () => {
     setLoading(true)
     personalApi.list(debouncedSearch, page, 20, 'apellidos', 'asc', filterStatus === 'all' ? undefined : filterStatus === 'active')
+=======
+  }, [debouncedSearch, page, filtroMes, filtroAnio])
+
+  const loadPersonal = () => {
+    setLoading(true)
+    personalApi.list(debouncedSearch, page, 20, 'apellidos', 'asc', filtroMes || undefined, filtroMes ? filtroAnio : undefined)
+>>>>>>> Stashed changes
       .then((res: { data: PaginationData }) => {
         setPersonal(res.data.data)
         setTotal(res.data.total)
@@ -101,17 +138,29 @@ export default function Personal() {
     setShowModal(true)
   }
 
-  const handleDelete = async (id: number) => {
-    if (confirm('¿Eliminar este empleado?')) {
-      try {
-        await personalApi.delete(id)
-        loadPersonal()
-      } catch (error) {
-        console.error(error)
-      }
+  const confirmDelete = (p: Personal) => {
+    setDeletingId(p.id)
+    setDeletingName(`${p.apellidos} ${p.nombres}`)
+    setShowDeleteModal(true)
+  }
+
+  const handleDelete = async () => {
+    if (deletingId === null) return
+    setDeleting(true)
+    try {
+      await personalApi.delete(deletingId)
+      setShowDeleteModal(false)
+      setDeletingId(null)
+      setDeletingName('')
+      loadPersonal()
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setDeleting(false)
     }
   }
 
+<<<<<<< Updated upstream
   const toggleActivo = async (p: Personal) => {
     await personalApi.update(p.id, { activo: !p.activo })
     loadPersonal()
@@ -119,6 +168,15 @@ export default function Personal() {
 
   const activeCount = personal.filter(p => p.activo).length
 
+=======
+  const openCreateModal = () => {
+    setEditing(null)
+    setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
+    setErrors({})
+    setShowModal(true)
+  }
+
+>>>>>>> Stashed changes
   const getPaginationRange = () => {
     const range: number[] = []
     const maxVisible = 5
@@ -133,19 +191,24 @@ export default function Personal() {
     return range
   }
 
+  const filtroDescripcion = filtroMes === 0
+    ? 'todos los meses'
+    : `${MESES_VALOR[filtroMes]} ${filtroAnio}`
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 bg-gradient-to-br from-red-600 to-red-700 rounded-xl flex items-center justify-center shadow-lg">
-              <User className="w-5 h-5 text-white" />
+              <Users className="w-5 h-5 text-white" />
             </div>
-            <span className="text-sm font-semibold text-red-600">Gestión de Empleados</span>
+            <span className="text-sm font-semibold text-red-600">Planilla de Personal Docente</span>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Personal</h2>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Administra los empleados de tu organización</p>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Planillas</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Administra el personal docente de tu organización</p>
         </div>
+<<<<<<< Updated upstream
         <button
           onClick={() => {
             setEditing(null)
@@ -155,11 +218,15 @@ export default function Personal() {
           }}
           className="btn-primary inline-flex items-center gap-2"
         >
+=======
+        <button onClick={openCreateModal} className="btn-primary inline-flex items-center gap-2">
+>>>>>>> Stashed changes
           <Plus className="w-4 h-4" />
-          <span>Nuevo Empleado</span>
+          <span>Nuevo Personal Docente</span>
         </button>
       </div>
 
+<<<<<<< Updated upstream
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
           <div className="flex items-start justify-between">
@@ -193,10 +260,78 @@ export default function Personal() {
               <XCircle className="w-6 h-6 text-gray-400 dark:text-gray-500" />
             </div>
           </div>
+=======
+      <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl p-5 text-white shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex items-center gap-4 min-w-fit">
+            <div className="p-3 bg-white/15 rounded-xl">
+              <Users className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <p className="text-3xl font-bold">{total}</p>
+              <p className="text-sm text-red-100">Total Personal Docente</p>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:pl-6 sm:border-l border-white/20">
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-red-100 shrink-0" />
+              <select
+                className="bg-white/15 border border-white/20 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/40 appearance-none cursor-pointer"
+                value={filtroMes}
+                onChange={e => { setFiltroMes(Number(e.target.value)); setPage(1) }}
+              >
+                {MESES.map((m, i) => (
+                  <option key={i} value={i} className="text-gray-900">{m}</option>
+                ))}
+              </select>
+              {filtroMes > 0 && (
+                <select
+                  className="bg-white/15 border border-white/20 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/40 appearance-none cursor-pointer"
+                  value={filtroAnio}
+                  onChange={e => { setFiltroAnio(Number(e.target.value)); setPage(1) }}
+                >
+                  {ANIOS.map(a => (
+                    <option key={a} value={a} className="text-gray-900">{a}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-200" />
+              <input
+                type="text"
+                placeholder="Buscar por DNI, nombre o apellido..."
+                className="w-full pl-10 pr-10 py-2.5 bg-white/15 border border-white/20 rounded-lg text-white placeholder:text-red-200 focus:outline-none focus:ring-2 focus:ring-white/40 text-sm"
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+              />
+              {searchInput && (
+                <button
+                  onClick={() => setSearchInput('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-red-200 hover:text-white p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-white/15">
+          <p className="text-xs text-red-100">
+            {filtroMes === 0
+              ? 'Mostrando todo el personal docente registrado'
+              : `Mostrando personal docente registrado en ${filtroDescripcion}`
+            }
+          </p>
+>>>>>>> Stashed changes
         </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+<<<<<<< Updated upstream
         <div className="p-5 border-b border-gray-100 dark:border-gray-700">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-3">
@@ -245,6 +380,8 @@ export default function Personal() {
           </div>
         </div>
 
+=======
+>>>>>>> Stashed changes
         {loading ? (
           <div className="p-5 space-y-4">
             {[...Array(5)].map((_, i) => (
@@ -260,23 +397,32 @@ export default function Personal() {
         ) : personal.length === 0 ? (
           <div className="text-center py-16">
             <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <User className="w-8 h-8 text-gray-400" />
+              <Users className="w-8 h-8 text-gray-400" />
             </div>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">No hay empleados</h3>
-            <p className="text-gray-500 dark:text-gray-400 mb-6">Comienza agregando tu primer empleado</p>
-            <button onClick={() => setShowModal(true)} className="btn-primary inline-flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              <span>Agregar Empleado</span>
-            </button>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+              {searchInput || filtroMes > 0 ? 'Sin resultados' : 'No hay personal docente'}
+            </h3>
+            <p className="text-gray-500 dark:text-gray-400 mb-6">
+              {searchInput || filtroMes > 0
+                ? `No se encontraron resultados para los filtros aplicados`
+                : 'Comienza agregando el primer docente'
+              }
+            </p>
+            {!searchInput && filtroMes === 0 && (
+              <button onClick={openCreateModal} className="btn-primary inline-flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                <span>Agregar Personal Docente</span>
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-700">
-                  <th className="text-left py-4 px-5">Empleado</th>
+                  <th className="text-left py-4 px-5">Docente</th>
                   <th className="text-left py-4 px-4">DNI</th>
-                  <th className="text-left py-4 px-4">Puesto</th>
+                  <th className="text-left py-4 px-4">Cargo</th>
                   <th className="text-left py-4 px-4">RD</th>
                   <th className="text-left py-4 px-4">UU</th>
                   <th className="text-left py-4 px-4">Estado</th>
@@ -293,7 +439,7 @@ export default function Personal() {
                         </div>
                         <div>
                           <p className="font-semibold text-gray-900 dark:text-white">{p.apellidos} {p.nombres}</p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">{p.puesto || 'Sin puesto'}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">{p.puesto || 'Sin cargo'}</p>
                         </div>
                       </div>
                     </td>
@@ -323,10 +469,18 @@ export default function Personal() {
                     </td>
                     <td className="py-4 px-5">
                       <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => handleEdit(p)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-all" title="Editar">
+                        <button
+                          onClick={() => handleEdit(p)}
+                          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-all"
+                          title="Editar"
+                        >
                           <Pencil className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDelete(p.id)} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-all" title="Eliminar">
+                        <button
+                          onClick={() => confirmDelete(p)}
+                          className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-all"
+                          title="Eliminar"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -377,8 +531,12 @@ export default function Personal() {
                     {editing ? <Pencil className="w-5 h-5 text-white" /> : <User className="w-5 h-5 text-white" />}
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-white">{editing ? 'Editar Empleado' : 'Nuevo Empleado'}</h3>
-                    <p className="text-white/70 text-sm">{editing ? 'Actualiza los datos' : 'Completa los datos del empleado'}</p>
+                    <h3 className="text-xl font-bold text-white">
+                      {editing ? 'Editar Personal Docente' : 'Nuevo Personal Docente'}
+                    </h3>
+                    <p className="text-white/70 text-sm">
+                      {editing ? 'Actualiza los datos del docente' : 'Registra un nuevo docente'}
+                    </p>
                   </div>
                 </div>
                 <button onClick={() => setShowModal(false)} className="text-white/80 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-all">
@@ -404,14 +562,14 @@ export default function Personal() {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                    <Briefcase className="w-4 h-4 inline mr-1" /> Puesto
+                    <Briefcase className="w-4 h-4 inline mr-1" /> Cargo
                   </label>
                   <input
                     type="text"
                     className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-red-500 transition-all text-gray-900 dark:text-white placeholder:text-gray-400"
                     value={form.puesto}
                     onChange={e => setForm({ ...form, puesto: e.target.value })}
-                    placeholder="Puesto laboral"
+                    placeholder="Docente, Auxiliar, etc."
                   />
                 </div>
               </div>
@@ -471,6 +629,7 @@ export default function Personal() {
                 </div>
               </div>
 
+<<<<<<< Updated upstream
               {editing && (
                 <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600">
                   <input
@@ -484,15 +643,81 @@ export default function Personal() {
                 </div>
               )}
 
+=======
+>>>>>>> Stashed changes
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">
                   Cancelar
                 </button>
                 <button type="submit" className="btn-primary">
-                  {editing ? 'Actualizar' : 'Crear Empleado'}
+                  {editing ? 'Actualizar' : 'Guardar'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowDeleteModal(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-5 bg-gradient-to-r from-red-600 to-red-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white">Eliminar Personal Docente</h3>
+                    <p className="text-white/70 text-sm">Esta acción no se puede deshacer</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowDeleteModal(false)} className="text-white/80 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-all">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl mb-5">
+                <div className="w-12 h-12 bg-red-100 dark:bg-red-800 rounded-xl flex items-center justify-center shrink-0">
+                  <User className="w-6 h-6 text-red-600 dark:text-red-400" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900 dark:text-white">{deletingName}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Será eliminado permanentemente</p>
+                </div>
+              </div>
+
+              <p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
+                ¿Estás seguro de eliminar a <strong className="text-gray-900 dark:text-white">{deletingName}</strong>? Esta acción eliminará todos sus datos y no se podrá recuperar.
+              </p>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-all inline-flex items-center gap-2 disabled:opacity-60"
+                >
+                  {deleting ? (
+                    <>Eliminando...</>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Sí, eliminar
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
