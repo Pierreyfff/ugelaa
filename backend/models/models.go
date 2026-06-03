@@ -20,6 +20,8 @@ type Personal struct {
 	Puesto    string    `json:"puesto" gorm:"size:100"`
 	RD        string    `json:"rd" gorm:"size:50"`
 	UU        string    `json:"uu" gorm:"size:50"`
+	Colegio   string    `json:"colegio" gorm:"size:200"`
+	Distrito  string    `json:"distrito" gorm:"size:150"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -101,6 +103,8 @@ type EmpleadoHaber struct {
 	Resolucion      *string        `json:"resolucion"`
 	Codigo          *string        `json:"codigo"`
 	DNI             *string        `json:"dni"`
+	Colegio         *string        `json:"colegio"`
+	Distrito        *string        `json:"distrito"`
 	Haberes         []ConceptoItem `json:"haberes"`
 	Descuentos      []ConceptoItem `json:"descuentos"`
 	TotalHaberes    *float64       `json:"total_haberes"`

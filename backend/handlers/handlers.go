@@ -94,7 +94,7 @@ func ListarPersonal(c *gin.Context) {
 	offset := (page - 1) * limit
 
 	// Validar campos de ordenamiento
-	validSortFields := map[string]bool{"apellidos": true, "nombres": true, "dni": true, "created_at": true, "activo": true}
+	validSortFields := map[string]bool{"apellidos": true, "nombres": true, "dni": true, "created_at": true, "activo": true, "colegio": true, "distrito": true}
 	if !validSortFields[sortBy] {
 		sortBy = "apellidos"
 	}
@@ -928,6 +928,12 @@ func ImportarHaberes(c *gin.Context) {
 			if emp.Codigo != nil {
 				personal.UU = *emp.Codigo
 			}
+			if emp.Colegio != nil {
+				personal.Colegio = *emp.Colegio
+			}
+			if emp.Distrito != nil {
+				personal.Distrito = *emp.Distrito
+			}
 			if err := db.Create(&personal).Error; err != nil {
 				fmt.Printf("[DEBUG] Error creating personal '%s': %v\n", emp.Nombre, err)
 				warnings = append(warnings, fmt.Sprintf("No se pudo crear '%s': %v", emp.Nombre, err))
@@ -949,6 +955,12 @@ func ImportarHaberes(c *gin.Context) {
 			}
 			if emp.Codigo != nil && *emp.Codigo != "" && personal.UU == "" {
 				updates["uu"] = *emp.Codigo
+			}
+			if emp.Colegio != nil && *emp.Colegio != "" && personal.Colegio == "" {
+				updates["colegio"] = *emp.Colegio
+			}
+			if emp.Distrito != nil && *emp.Distrito != "" && personal.Distrito == "" {
+				updates["distrito"] = *emp.Distrito
 			}
 			if len(updates) > 0 {
 				db.Model(&personal).Updates(updates)
@@ -1203,6 +1215,8 @@ func ExportarPlanillasPersonal(c *gin.Context) {
 			"puesto":    personal.Puesto,
 			"rd":        personal.RD,
 			"uu":        personal.UU,
+			"colegio":   personal.Colegio,
+			"distrito":  personal.Distrito,
 		},
 		"planillas":        planillas,
 		"total_haberes":   totalHaberes,

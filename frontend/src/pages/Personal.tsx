@@ -10,6 +10,8 @@ interface Personal {
   puesto: string
   rd: string
   uu: string
+  colegio: string
+  distrito: string
 }
 
 interface PaginationData {
@@ -31,7 +33,7 @@ export default function Personal() {
   const [total, setTotal] = useState(0)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Personal | null>(null)
-  const [form, setForm] = useState({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
+  const [form, setForm] = useState({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '', colegio: '', distrito: '' })
   const [errors, setErrors] = useState<{ nombres?: string; apellidos?: string }>({})
 
   useEffect(() => {
@@ -78,7 +80,7 @@ export default function Personal() {
       }
       setShowModal(false)
       setEditing(null)
-      setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
+      setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '', colegio: '', distrito: '' })
       setErrors({})
       loadPersonal()
     } catch (error) {
@@ -94,7 +96,9 @@ export default function Personal() {
       apellidos: p.apellidos,
       puesto: p.puesto || '',
       rd: p.rd || '',
-      uu: p.uu || ''
+      uu: p.uu || '',
+      colegio: p.colegio || '',
+      distrito: p.distrito || ''
     })
     setShowModal(true)
   }
@@ -140,7 +144,7 @@ export default function Personal() {
         <button
           onClick={() => {
             setEditing(null)
-setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
+setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '', colegio: '', distrito: '' })
             setErrors({})
             setShowModal(true)
           }}
@@ -250,6 +254,8 @@ setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
                   <th className="text-left py-4 px-5">Empleado</th>
                   <th className="text-left py-4 px-4">DNI</th>
                   <th className="text-left py-4 px-4">Puesto</th>
+                  <th className="text-left py-4 px-4">Colegio</th>
+                  <th className="text-left py-4 px-4">Distrito</th>
                   <th className="text-left py-4 px-4">RD</th>
                   <th className="text-left py-4 px-4">UU</th>
                   <th className="text-right py-4 px-5">Acciones</th>
@@ -274,6 +280,12 @@ setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
                     </td>
                     <td className="py-4 px-4">
                       <span className="text-sm text-gray-600 dark:text-gray-400">{p.puesto || '-'}</span>
+                    </td>
+                    <td className="py-4 px-4">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{p.colegio || '-'}</span>
+                    </td>
+                    <td className="py-4 px-4">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{p.distrito || '-'}</span>
                     </td>
                     <td className="py-4 px-4">
                       <span className="font-mono text-sm text-gray-500 bg-gray-50 dark:bg-gray-700 px-2 py-1 rounded dark:text-gray-400">{p.rd || '-'}</span>
@@ -372,6 +384,33 @@ setForm({ dni: '', nombres: '', apellidos: '', puesto: '', rd: '', uu: '' })
                     value={form.puesto}
                     onChange={e => setForm({ ...form, puesto: e.target.value })}
                     placeholder="Puesto laboral"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Colegio
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-red-500 transition-all text-gray-900 dark:text-white placeholder:text-gray-400"
+                    value={form.colegio}
+                    onChange={e => setForm({ ...form, colegio: e.target.value })}
+                    placeholder="Nombre del colegio"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Distrito
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-red-500 transition-all text-gray-900 dark:text-white placeholder:text-gray-400"
+                    value={form.distrito}
+                    onChange={e => setForm({ ...form, distrito: e.target.value })}
+                    placeholder="Distrito"
                   />
                 </div>
               </div>

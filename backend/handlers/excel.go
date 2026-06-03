@@ -74,7 +74,7 @@ func toFloat(s string) float64 {
 }
 
 // classifyInfo categorises an employee-info cell.
-// Returns (category, value): "rd" | "uu" | "dni" | "puesto"
+// Returns (category, value): "rd" | "uu" | "dni" | "puesto" | "distrito"
 func classifyInfo(text string) (string, string) {
 	u := strings.ToUpper(strings.TrimSpace(text))
 	switch {
@@ -85,6 +85,12 @@ func classifyInfo(text string) (string, string) {
 	case strings.Contains(u, "DNI"):
 		digits := regexp.MustCompile(`\d+`).FindString(text)
 		return "dni", digits
+	case regexp.MustCompile(`^(DISTRITO|DIST\.?)\s*:?\s*`).MatchString(u):
+		dist := regexp.MustCompile(`^(DISTRITO|DIST\.?)\s*:?\s*`).ReplaceAllString(text, "")
+		if strings.TrimSpace(dist) != "" {
+			return "distrito", strings.TrimSpace(dist)
+		}
+		return "puesto", text
 	default:
 		return "puesto", text
 	}
@@ -209,6 +215,7 @@ func ReadExcelFile(filename string) (*models.DataExcel, error) {
 
 		var cur *block
 		inSection := "" // "haberes" | "dsctos"
+		colegioActual := ""
 
 		for rIdx, row := range rows {
 			rowNum := rIdx + 1
@@ -218,6 +225,15 @@ func ReadExcelFile(filename string) (*models.DataExcel, error) {
 			rawEmp := rawCell(rows, rIdx, empInfoCol-1)
 			rawDet := rawCell(rows, rIdx, detailCol-1)
 			rawMon := rawCell(rows, rIdx, amountCol-1)
+
+			// Detect colegio: a row whose Col B has content (not a section marker)
+			// and is immediately followed by a HABERES row
+			if rawEmp != "" && rIdx+1 < len(rows) {
+				nextSec := strings.ToUpper(rawCell(rows, rIdx+1, seccionCol-1))
+				if nextSec == "HABERES" {
+					colegioActual = rawEmp
+				}
+			}
 
 			// Build full-row text from merged values for TOTAL detection
 			colCount := len(row)
@@ -252,7 +268,8 @@ func ReadExcelFile(filename string) (*models.DataExcel, error) {
 				empName := mergedCell(mm, rows, empInfoCol, rowNum)
 				cur = &block{
 					personal: models.Personal{
-						Nombres: empName,
+						Nombres:  empName,
+						Colegio:  colegioActual,
 					},
 					planilla: models.PlanillaImport{
 						Nombres:    empName,
@@ -262,6 +279,7 @@ func ReadExcelFile(filename string) (*models.DataExcel, error) {
 						Descuentos: []models.DescuentoImport{},
 					},
 				}
+				colegioActual = ""
 				// First item may appear on the same row as HABERES
 				if rawDet != "" {
 					if m := toFloat(rawMon); m > 0 {
@@ -288,7 +306,7 @@ func ReadExcelFile(filename string) (*models.DataExcel, error) {
 				continue
 			}
 
-			// ── Employee-info column (RD, UU, DNI, puesto) ───────────────
+			// ── Employee-info column (RD, UU, DNI, distrito, puesto) ────
 			if inSection == "haberes" && rawEmp != "" && rawEmp != cur.personal.Nombres {
 				cat, val := classifyInfo(rawEmp)
 				switch cat {
@@ -305,8 +323,15 @@ func ReadExcelFile(filename string) (*models.DataExcel, error) {
 						cur.personal.DNI = val
 						cur.planilla.DNI = val
 					}
+				case "distrito":
+					if cur.personal.Distrito == "" {
+						cur.personal.Distrito = val
+					}
 				case "puesto":
-					if cur.personal.Puesto == "" {
+					// Order: distrito before cargo
+					if cur.personal.Distrito == "" {
+						cur.personal.Distrito = val
+					} else if cur.personal.Puesto == "" {
 						cur.personal.Puesto = val
 					}
 				}

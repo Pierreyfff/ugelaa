@@ -10,6 +10,8 @@ interface Personal {
   puesto?: string
   rd?: string
   uu?: string
+  colegio?: string
+  distrito?: string
 }
 
 interface Ingreso { id: number; tipo: string; monto: number }
@@ -216,6 +218,8 @@ export default function Exportar() {
     <table><tr><th>Apellidos</th><td>${selectedPerson.apellidos}</td></tr>
     <tr><th>Nombres</th><td>${selectedPerson.nombres}</td></tr>
     <tr><th>DNI</th><td>${selectedPerson.dni || 'N/A'}</td></tr>
+    <tr><th>Colegio</th><td>${selectedPerson.colegio || 'N/A'}</td></tr>
+    <tr><th>Distrito</th><td>${selectedPerson.distrito || 'N/A'}</td></tr>
     <tr><th>Puesto</th><td>${selectedPerson.puesto || 'N/A'}</td></tr>
     <tr><th>RD</th><td>${selectedPerson.rd || 'N/A'}</td></tr>
     <tr><th>UU</th><td>${selectedPerson.uu || 'N/A'}</td></tr></table>
@@ -321,10 +325,12 @@ export default function Exportar() {
                   <div className="w-16 h-16 bg-red-600 rounded-xl flex items-center justify-center text-white font-bold text-2xl">
                     {selectedPerson.nombres?.charAt(0) || '?'}
                   </div>
-                  <div className="flex-1">
+                    <div className="flex-1">
                     <p className="font-bold text-gray-900 dark:text-white text-xl">{selectedPerson.apellidos}, {selectedPerson.nombres}</p>
                     <div className="flex flex-wrap gap-4 mt-2">
                       <span className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600"><Hash className="w-4 h-4 text-red-500" /> {selectedPerson.dni || 'Sin DNI'}</span>
+                      <span className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600">{selectedPerson.colegio || 'Sin colegio'}</span>
+                      <span className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600">{selectedPerson.distrito || 'Sin distrito'}</span>
                       <span className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600">{selectedPerson.puesto || 'Sin puesto'}</span>
                     </div>
                   </div>

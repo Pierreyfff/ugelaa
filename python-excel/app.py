@@ -115,11 +115,13 @@ def extraer_empleados(filepath: str) -> list:
 
       Col A    | Col B           | Col C    | Col D
       ---------+-----------------+----------+--------
+      COLEGIO  | (school name)   | DETALLE  | MES
       HABERES  | Apellidos Nomb. | BASICA   | 0.03
       (merged) | (merged)        | DL19990  | 60.00
                | CARGO/PUESTO    | TPH      | 19.20
                | RD 150-93       | ...
                | uu-01-0-005     |
+               | DISTRITO: xxx   |          |
       DSCTOS   |                 | DL20530  | 3.80
       TOTAL HABERES              |          | 153.92
       TOTAL DESCUENTOS           |          | 76.27
@@ -132,10 +134,18 @@ def extraer_empleados(filepath: str) -> list:
     empleados = []
     i = 0
     n = len(filas)
+    colegio_actual = None
 
     while i < n:
         fila = filas[i]
         col_a = str(fila[0]).strip() if fila[0] else ""
+
+        # Colegio: row before HABERES has school name in Col B
+        col_b = str(fila[1]).strip() if len(fila) > 1 and fila[1] else ""
+        if col_b and i + 1 < n:
+            siguiente = str(filas[i + 1][0]).strip() if filas[i + 1][0] else ""
+            if siguiente == "HABERES":
+                colegio_actual = col_b
 
         if col_a == "HABERES" and len(fila) > 1 and fila[1]:
             emp = {
@@ -144,12 +154,15 @@ def extraer_empleados(filepath: str) -> list:
                 "resolucion": None,
                 "codigo": None,
                 "dni": None,
+                "colegio": colegio_actual,
+                "distrito": None,
                 "haberes": [],
                 "descuentos": [],
                 "total_haberes": None,
                 "total_descuentos": None,
                 "total_liquido": None,
             }
+            colegio_actual = None
 
             concepto_inicial = str(fila[2]).strip() if len(fila) > 2 and fila[2] else ""
             valor_inicial = parsear_valor(fila[3] if len(fila) > 3 else None)
@@ -194,12 +207,19 @@ def extraer_empleados(filepath: str) -> list:
                     dni_encontrado = extraer_dni(b)
                     if dni_encontrado:
                         emp["dni"] = dni_encontrado
+                    elif re.match(r"^(DISTRITO|DIST\.?)\s*:?\s*", b, re.IGNORECASE):
+                        dist = re.sub(r"^(DISTRITO|DIST\.?)\s*:?\s*", "", b, flags=re.IGNORECASE).strip()
+                        if dist:
+                            emp["distrito"] = dist
                     elif re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.)\w*\s*[\d\-./A-Za-z]+", b, re.IGNORECASE):
                         emp["resolucion"] = b
                     elif re.match(r"^uu-", b, re.IGNORECASE):
                         emp["codigo"] = b
                     elif not re.match(r"^(TOTAL|DSCTOS)", b, re.IGNORECASE):
-                        if emp["cargo"] is None:
+                        # Order: distrito first, then cargo
+                        if emp["distrito"] is None:
+                            emp["distrito"] = b
+                        elif emp["cargo"] is None:
                             emp["cargo"] = b
 
                 if c_cell:

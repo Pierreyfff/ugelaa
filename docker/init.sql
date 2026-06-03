@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS personal (
     puesto VARCHAR(100),
     rd VARCHAR(50),
     uu VARCHAR(50),
+    colegio VARCHAR(200),
+    distrito VARCHAR(150),
     activo BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

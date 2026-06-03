@@ -422,9 +422,14 @@ export default function Importar() {
                 <span className="w-16">Col C</span>
                 <span className="flex-1">Col D</span>
               </div>
+              <p><span className="text-gray-500">|</span> <span className="text-yellow-400">COLEGIO</span> <span className="text-gray-500">|</span> DETALLE <span className="text-gray-500">|</span> MES</p>
               <p className="text-red-400">HABERES</p>
-              <p><span className="text-gray-500">|</span> Apellidos <span className="text-gray-500">|</span> DETALLE <span className="text-gray-500">|</span> MES</p>
-              <p><span className="text-gray-500">|</span> Nombres <span className="text-gray-500">|</span> BASICA <span className="text-gray-500">|</span> 0.03</p>
+              <p><span className="text-gray-500">|</span> Apellidos Nomb. <span className="text-gray-500">|</span> BASICA <span className="text-gray-500">|</span> 0.03</p>
+              <p><span className="text-gray-500">|</span> DISTRITO <span className="text-gray-500">|</span> ... <span className="text-gray-500">|</span> ...</p>
+              <p><span className="text-gray-500">|</span> CARGO <span className="text-gray-500">|</span> ... <span className="text-gray-500">|</span> ...</p>
+              <p><span className="text-gray-500">|</span> RD 150-93 <span className="text-gray-500">|</span></p>
+              <p><span className="text-gray-500">|</span> uu-01-0-005 <span className="text-gray-500">|</span></p>
+              <p><span className="text-gray-500">|</span> DNI XXXXX <span className="text-gray-500">|</span></p>
               <p className="text-gray-400 mt-2">DSCTOS</p>
               <p><span className="text-gray-500">|</span> DL20530 <span className="text-gray-500">|</span> 3.80</p>
             </div>
@@ -439,9 +444,13 @@ export default function Importar() {
             </div>
             <div className="space-y-3">
               {[
-                { label: 'Nombre', desc: 'Columna B - Nombres' },
-                { label: 'Puesto', desc: 'Columna B - Puesto' },
-                { label: 'DNI', desc: 'Columna B - DNI' },
+                { label: 'Colegio', desc: 'Columna B - arriba del nombre' },
+                { label: 'Nombre', desc: 'Columna B - empleado' },
+                { label: 'Distrito', desc: 'Columna B - abajo del nombre' },
+                { label: 'Puesto', desc: 'Columna B - cargo' },
+                { label: 'RD', desc: 'Columna B - resolución' },
+                { label: 'UU', desc: 'Columna B - código' },
+                { label: 'DNI', desc: 'Columna B - documento' },
                 { label: 'Ingresos', desc: 'Sección HABERES' },
                 { label: 'Descuentos', desc: 'Sección DSCTOS' },
               ].map(({ label, desc }, idx) => (
