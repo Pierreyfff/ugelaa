@@ -1,8 +1,10 @@
+import io
 import os
 import re
+import time
 import requests
 import xlrd
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from openpyxl import load_workbook
 from werkzeug.utils import secure_filename
 
@@ -14,33 +16,9 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 DNI_PATTERN = re.compile(r"DNI\s*(\d+)", re.IGNORECASE)
+INST_PATTERN = re.compile(r"INSTITUCION|INSTITUCIÓN", re.IGNORECASE)
+DIST_PATTERN = re.compile(r"DISTRITO", re.IGNORECASE)
 IGNORAR_CONCEPTOS = {"REINTEGRO", "ESCOLARIDAD", "AGUINALDO", "DETALLE"}
-
-DISTRITOS_CAÑETE = {
-    # Capital (con y sin ñ, con y sin DE)
-    "SAN VICENTE", "SAN VICENTE DE CAÑETE", "SAN VICENTE DE CANETE",
-    "SAN VICENTE CAÑETE", "SAN VICENTE CANETE",
-    "CANETE", "CAÑETE",
-    # Distritos de la provincia de Cañete
-    "IMPERIAL", "NUEVO IMPERIAL", "NVO IMPERIAL", "NVO. IMPERIAL",
-    "LUNAHUANA", "QUILMANA", "ZUNIGA",
-    "PACARAN", "COAYLLO",
-    "SANTA CRUZ DE FLORES", "SANTA CRUZ",
-    "CHILCA", "MALA", "ASIA", "CERRO AZUL",
-    "SAN LUIS", "CALANGO", "SAN ANTONIO",
-}
-
-
-def normalizar_distrito(nombre: str) -> str:
-    """Normalize district name: uppercase and replace ñ→N."""
-    return nombre.upper().replace("Ñ", "N")
-
-# Patrones para detectar cargos/puestos (evita que se mezclen con el nombre)
-CARGO_PATTERN = re.compile(
-    r"^(PROF|AUX|TRAB|SERV|D\d|AUXILIAR|DOCENTE|DIRECTOR|JEFE|COORDINADOR|"
-    r"SUB\s+DIRECTOR|PRACTICANTE|APOYO|ESPECIALISTA|TECNICO|ADMINISTRATIVO)",
-    re.IGNORECASE,
-)
 
 
 def parsear_valor(v):
@@ -108,7 +86,6 @@ def extraer_dni(texto: str):
 
 
 def _leer_filas(filepath: str) -> list:
-    """Return all rows as a list of tuples, supporting both .xls and .xlsx."""
     ext = os.path.splitext(filepath)[1].lower()
     if ext == ".xls":
         wb = xlrd.open_workbook(filepath)
@@ -118,11 +95,9 @@ def _leer_filas(filepath: str) -> list:
             row = []
             for cx in range(ws.ncols):
                 cell = ws.cell(rx, cx)
-                # xlrd type 0=empty,1=text,2=number,3=date,4=bool,5=error,6=blank
                 if cell.ctype in (0, 5, 6):
                     row.append(None)
                 elif cell.ctype == 2:
-                    # Return int if value is whole number, else float
                     v = cell.value
                     row.append(int(v) if v == int(v) else v)
                 else:
@@ -135,91 +110,27 @@ def _leer_filas(filepath: str) -> list:
         return list(ws.iter_rows(values_only=True))
 
 
-def escanear_encabezado(filas: list) -> tuple:
-    """
-    Scan header rows (before the first HABERES) to find global institution
-    name and district for the entire file.
-    Returns (institucion, distrito).
-    """
-    institucion = None
-    distrito = None
-    max_scan = min(30, len(filas))
-
-    for i in range(max_scan):
-        f = filas[i]
-        a = str(f[0]).strip() if f[0] else ""
-        b = str(f[1]).strip() if len(f) > 1 and f[1] else ""
-        c = str(f[2]).strip() if len(f) > 2 and f[2] else ""
-
-        if a.upper() == "HABERES" and b:
-            break
-
-        b_norm = normalizar_distrito(b) if b else ""
-
-        # ── District keyword in Col A → Col B is the value ───────────────
-        if "DISTRITO" in a.upper() and b:
-            distrito = b_norm
-        # ── District inline in Col B ─────────────────────────────────────
-        elif "DISTRITO" in b.upper() and not distrito:
-            m = re.search(r"DISTRITO\s*:?\s*(.+)", b, re.IGNORECASE)
-            if m and m.group(1).strip():
-                distrito = normalizar_distrito(m.group(1).strip())
-        # ── Fallback: plain Col B matches district set ───────────────────
-        elif b and not distrito and b_norm in DISTRITOS_CAÑETE:
-            distrito = b_norm
-
-        # ── Institution keyword in Col A → Col B is the value ────────────
-        if re.search(r"(?:INSTITUCION|I\.?\s*E\.?\s*|COLEGIO|ESCUELA)", a.upper()):
-            if b:
-                institucion = b
-        # ── Institution inline in Col B ──────────────────────────────────
-        elif (b and not institucion
-              and re.search(r"(?:INSTITUCION|I\.?\s*E\.?\s*|COLEGIO|ESCUELA)", b.upper())):
-            m = re.search(
-                r"(?:INSTITUCION|I\.?\s*E\.?|COLEGIO|ESCUELA)\s*[:\-]?\s*(.+)",
-                b, re.IGNORECASE
-            )
-            if m and m.group(1).strip():
-                institucion = m.group(1).strip()
-        # ── Fallback: plain Col B (non-trash) → institution ──────────────
-        elif b and not institucion:
-            ignore = (
-                b_norm in DISTRITOS_CAÑETE
-                or b.upper() in ("HABERES", "DSCTOS", "TOTAL HABERES",
-                                 "TOTAL DESCUENTOS", "TOTAL LIQUIDO")
-                or re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.)", b.upper())
-                or re.match(r"^[ui]u-", b.upper())
-                or CARGO_PATTERN.match(b.upper())
-                or extraer_dni(b)
-            )
-            if not ignore:
-                institucion = b
-
-    return institucion, distrito
+def escanear_encabezado(filas: list) -> dict:
+    info = {"institucion": None, "distrito": None}
+    for row in filas[:20]:
+        for celda in row:
+            texto = str(celda).strip() if celda else ""
+            if not texto:
+                continue
+            if INST_PATTERN.search(texto):
+                partes = re.split(r"INSTITUCION|INSTITUCIÓN", texto, flags=re.IGNORECASE)
+                if len(partes) > 1 and partes[1].strip():
+                    info["institucion"] = partes[1].strip().rstrip(":-–—")
+            if DIST_PATTERN.search(texto):
+                partes = re.split(r"DISTRITO", texto, flags=re.IGNORECASE)
+                if len(partes) > 1 and partes[1].strip():
+                    info["distrito"] = partes[1].strip().rstrip(":-–—")
+    return info
 
 
 def extraer_empleados(filepath: str) -> list:
-    """
-    Parse a payroll Excel with vertical-block layout:
-
-      Col A    | Col B           | Col C    | Col D
-      ---------+-----------------+----------+--------
-      HABERES  | Apellidos Nomb. | BASICA   | 0.03
-      (merged) | (merged)        | DL19990  | 60.00
-               | CARGO/PUESTO    | TPH      | 19.20
-               | RD 150-93       | ...
-               | uu-01-0-005     |
-      DSCTOS   |                 | DL20530  | 3.80
-      TOTAL HABERES              |          | 153.92
-      TOTAL DESCUENTOS           |          | 76.27
-      TOTAL LIQUIDO              |          | 77.65
-
-    Mes/Año are NOT read from the file; they come from the user request.
-    """
     filas = _leer_filas(filepath)
-
-    # Scan header for global institution / district
-    global_institucion, global_distrito = escanear_encabezado(filas)
+    encabezado = escanear_encabezado(filas)
 
     empleados = []
     i = 0
@@ -230,38 +141,12 @@ def extraer_empleados(filepath: str) -> list:
         col_a = str(fila[0]).strip() if fila[0] else ""
 
         if col_a == "HABERES" and len(fila) > 1 and fila[1]:
-            # Institution name: scan up to 3 rows before HABERES, fallback to header
-            institucion = global_institucion
-            for j in range(1, 4):
-                if i - j < 0:
-                    break
-                prev = filas[i - j]
-                pa = str(prev[0]).strip() if prev[0] else ""
-                pb = str(prev[1]).strip() if len(prev) > 1 and prev[1] else ""
-                if not pb and not pa:
-                    continue
-                # If prev row has institution keyword in Col A → Col B is the value
-                if re.search(r"(?:INSTITUCION|I\.?\s*E\.?\s*|COLEGIO|ESCUELA)", pa.upper()):
-                    if pb:
-                        institucion = pb
-                    break
-                # If Col B is non-trash and not a district/cargo/DNI → institution
-                if pb and pb not in ("HABERES", "DSCTOS", "TOTAL HABERES", "TOTAL DESCUENTOS", "TOTAL LIQUIDO"):
-                    pb_norm = normalizar_distrito(pb)
-                    if (pb_norm not in DISTRITOS_CAÑETE
-                            and not CARGO_PATTERN.match(pb.upper())
-                            and not extraer_dni(pb)
-                            and not re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.)", pb.upper())
-                            and not re.match(r"^[ui]u-", pb.upper())):
-                        institucion = pb
-                        break
-
             nombre_completo = str(fila[1]).strip()
 
             emp = {
                 "nombre": nombre_completo,
-                "institucion": institucion,
-                "distrito": None,
+                "institucion": encabezado["institucion"],
+                "distrito": encabezado["distrito"],
                 "cargo": None,
                 "resolucion": None,
                 "codigo": None,
@@ -272,33 +157,6 @@ def extraer_empleados(filepath: str) -> list:
                 "total_descuentos": None,
                 "total_liquido": None,
             }
-
-            # District override: scan up to 3 rows before HABERES
-            for j in range(1, 4):
-                if i - j < 0:
-                    break
-                prev = filas[i - j]
-                pa = str(prev[0]).strip() if prev[0] else ""
-                pb = str(prev[1]).strip() if len(prev) > 1 and prev[1] else ""
-                # Check Col B for district match
-                if pb:
-                    pb_norm = normalizar_distrito(pb)
-                    if pb_norm in DISTRITOS_CAÑETE:
-                        if emp["distrito"] is None:
-                            emp["distrito"] = pb
-                        break
-                # Check Col A for inline district (e.g. "DISTRITO: SAN VICENTE")
-                if "DISTRITO" in pa.upper():
-                    m = re.search(r"DISTRITO\s*:?\s*(.+)", pa, re.IGNORECASE)
-                    if m and m.group(1).strip():
-                        d = normalizar_distrito(m.group(1).strip())
-                        if d in DISTRITOS_CAÑETE and emp["distrito"] is None:
-                            emp["distrito"] = m.group(1).strip()
-                        break
-
-            # States: "name" → "distrito" → "cargo"
-            expecting = "name"
-            name_parts = 0
 
             concepto_inicial = str(fila[2]).strip() if len(fila) > 2 and fila[2] else ""
             valor_inicial = parsear_valor(fila[3] if len(fila) > 3 else None)
@@ -343,45 +201,12 @@ def extraer_empleados(filepath: str) -> list:
                     dni_encontrado = extraer_dni(b)
                     if dni_encontrado:
                         emp["dni"] = dni_encontrado
-                        if expecting == "name" or expecting == "distrito":
-                            expecting = "cargo"
                     elif re.match(r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.)\w*\s*[\d\-./A-Za-z]+", b, re.IGNORECASE):
                         emp["resolucion"] = b
-                        if expecting == "name" or expecting == "distrito":
-                            expecting = "cargo"
-                    elif re.match(r"^[ui]u-", b, re.IGNORECASE):
+                    elif re.match(r"^uu-", b, re.IGNORECASE):
                         emp["codigo"] = b
-                        if expecting == "name" or expecting == "distrito":
-                            expecting = "cargo"
                     elif not re.match(r"^(TOTAL|DSCTOS)", b, re.IGNORECASE):
-                        b_upper = b.upper()
-                        b_norm = normalizar_distrito(b)
-                        es_cargo = "." in b or CARGO_PATTERN.match(b_upper)
-                        if expecting == "name":
-                            if b_norm in DISTRITOS_CAÑETE:
-                                emp["distrito"] = b
-                                expecting = "cargo"
-                            elif es_cargo:
-                                emp["cargo"] = b
-                                expecting = "cargo"
-                            elif name_parts < 1:
-                                nombre_completo += " " + b
-                                emp["nombre"] = nombre_completo
-                                name_parts += 1
-                            else:
-                                emp["distrito"] = b
-                                expecting = "cargo"
-                        elif expecting in ("distrito",):
-                            if es_cargo:
-                                emp["cargo"] = b
-                                expecting = "cargo"
-                            else:
-                                emp["distrito"] = b
-                                expecting = "cargo"
-                        elif b_norm in DISTRITOS_CAÑETE:
-                            if not emp["distrito"] or emp["distrito"] == global_distrito:
-                                emp["distrito"] = b
-                        elif emp["cargo"] is None:
+                        if emp["cargo"] is None:
                             emp["cargo"] = b
 
                 if c_cell:
@@ -396,52 +221,11 @@ def extraer_empleados(filepath: str) -> list:
 
                 i += 1
 
-            # Fallback to global district if not detected per-employee
-            if emp["distrito"] is None:
-                emp["distrito"] = global_distrito
-
             empleados.append(emp)
             continue
 
         i += 1
 
-    # Post-processing: extraer cargo desde el final de nombre
-    CARGO_EN_NOMBRE = re.compile(
-        r"\s+(?:PROF\.?\s*(?:DE\s+AULA|POR\s+HORA)\s*|"
-        r"AUX\.?\s*(?:DE\s+EDUC\.?\w*|EDUCACION|EDUCAC\.?)\s*|"
-        r"TRAB\.?\s*SERV\.?\w*\s*|"
-        r"D\d+|"
-        r"AUXILIAR|DOCENTE|DIRECTOR|JEFE|COORDINADOR|"
-        r"ESPECIALISTA|TECNICO|ADMINISTRATIVO|PRACTICANTE|APOYO)\s*$",
-        re.IGNORECASE,
-    )
-    for emp in empleados:
-        # ── Extract cargo from end of nombre ──────────────────────────
-        m = CARGO_EN_NOMBRE.search(emp["nombre"])
-        if m:
-            cargo_from_nombre = m.group(0).strip()
-            nombre_limpio = emp["nombre"][: m.start()].strip()
-            if not emp["cargo"] or not "." in emp["cargo"] and not CARGO_PATTERN.match(emp["cargo"].upper()):
-                emp["cargo"] = cargo_from_nombre
-                emp["nombre"] = nombre_limpio
-
-        # ── Extract district from end of nombre ───────────────────────
-        palabras = emp["nombre"].split()
-        extraidos = []
-        while True:
-            encontrado = False
-            for fin in range(len(palabras), 0, -1):
-                candidato = " ".join(palabras[fin - 1:])
-                if normalizar_distrito(candidato) in DISTRITOS_CAÑETE:
-                    extraidos.insert(0, candidato)
-                    palabras = palabras[:fin - 1]
-                    encontrado = True
-                    break
-            if not encontrado:
-                break
-        if extraidos:
-            emp["distrito"] = " ".join(extraidos)
-            emp["nombre"] = " ".join(palabras)
     return empleados
 
 
@@ -523,44 +307,6 @@ def process_excel():
             os.remove(filepath)
 
 
-@app.route("/debug-excel", methods=["POST"])
-def debug_excel():
-    """
-    Debug endpoint: returns the FULL raw extraction as JSON (no import).
-    Useful for testing field extraction without committing to the database.
-    """
-    if "file" not in request.files:
-        return jsonify({"error": "No se encontró archivo"}), 400
-
-    file = request.files["file"]
-    if not file.filename:
-        return jsonify({"error": "Archivo sin nombre"}), 400
-
-    filename = secure_filename(file.filename)
-    if not filename.lower().endswith(('.xlsx', '.xls')):
-        return jsonify({"error": "Solo se aceptan archivos Excel (.xlsx, .xls)"}), 400
-
-    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    file.save(filepath)
-
-    try:
-        empleados = extraer_empleados(filepath)
-        analisis = analizar_duplicados(empleados)
-        monto_total = calcular_monto_total(empleados)
-
-        return jsonify({
-            "total_empleados": len(empleados),
-            "empleados": empleados,
-            "analisis_duplicados": analisis,
-            "monto_total": monto_total,
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-
-
 @app.route("/validate-excel", methods=["POST"])
 def validate_excel():
     if "file" not in request.files:
@@ -595,6 +341,135 @@ def validate_excel():
     finally:
         if os.path.exists(filepath):
             os.remove(filepath)
+
+
+@app.route("/export-excel", methods=["POST"])
+def export_excel():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Se requiere JSON body"}), 400
+
+    personal_id = data.get("personal_id")
+    if not personal_id:
+        return jsonify({"error": "Se requiere personal_id"}), 400
+
+    mes = data.get("mes")
+    anio = data.get("anio")
+
+    params = {}
+    if mes:
+        params["mes"] = str(mes)
+    if anio:
+        params["anio"] = str(anio)
+
+    try:
+        resp = requests.get(
+            f"{BACKEND_URL}/api/personal/{personal_id}/exportar",
+            params=params,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Error de conexión con el backend: {str(e)}"}), 502
+
+    if resp.status_code != 200:
+        return jsonify({"error": "Error al obtener datos del empleado", "details": resp.text}), resp.status_code
+
+    d = resp.json()
+    personal = d.get("personal", {})
+    planillas = d.get("planillas", [])
+
+    template_path = os.path.join(app.config["UPLOAD_FOLDER"], "plantilla_nueva.xlsx")
+    if not os.path.exists(template_path):
+        return jsonify({"error": "Plantilla no encontrada en el servidor"}), 500
+
+    try:
+        wb = load_workbook(template_path)
+    except Exception as e:
+        return jsonify({"error": f"Error al cargar plantilla: {str(e)}"}), 500
+
+    ws = wb.active
+
+    # ── Employee info (rows 5–8) ──
+    ws["C5"] = f"{personal.get('apellidos', '')}, {personal.get('nombres', '')}".strip(", ")
+    ws["C6"] = f"{mes}/{anio}" if mes and anio else ""
+    ws["C7"] = personal.get("dni", "")
+    ws["K5"] = ""
+    ws["K6"] = personal.get("puesto", "")
+    ws["K7"] = personal.get("rd", "")
+    ws["K8"] = personal.get("uu", "")
+
+    if planillas:
+        # ── Collect unique conceptos across all planillas ──
+        haberes_conceptos = {}
+        descuentos_conceptos = {}
+        for p in planillas:
+            m, a = p["mes"], p["anio"]
+            key = f"{a}-{m}"
+            for ing in p.get("ingresos", []):
+                t = ing.get("tipo", "").strip()
+                if t:
+                    if t not in haberes_conceptos:
+                        haberes_conceptos[t] = {}
+                    haberes_conceptos[t][key] = ing.get("monto", 0)
+            for desc in p.get("descuentos", []):
+                t = desc.get("tipo", "").strip()
+                if t:
+                    if t not in descuentos_conceptos:
+                        descuentos_conceptos[t] = {}
+                    descuentos_conceptos[t][key] = desc.get("monto", 0)
+
+        def mes_a_columna(m):
+            return 3 + m
+
+        # ── Fill HABERES (rows 11–24) ──
+        haberes_ordenados = sorted(haberes_conceptos.keys())
+        for i, concepto in enumerate(haberes_ordenados[:14]):
+            row = 11 + i
+            ws.cell(row=row, column=1, value=concepto)
+            for key, monto in haberes_conceptos[concepto].items():
+                _, m = key.split("-")
+                col = mes_a_columna(int(m))
+                ws.cell(row=row, column=col, value=monto)
+
+        # ── TOTAL HABERES (row 25) ──
+        for p in planillas:
+            col = mes_a_columna(p["mes"])
+            ws.cell(row=25, column=col, value=p.get("total_haberes", 0))
+
+        # ── Fill DESCUENTOS (rows 27–34) ──
+        desc_ordenados = sorted(descuentos_conceptos.keys())
+        for i, concepto in enumerate(desc_ordenados[:8]):
+            row = 27 + i
+            ws.cell(row=row, column=1, value=concepto)
+            for key, monto in descuentos_conceptos[concepto].items():
+                _, m = key.split("-")
+                col = mes_a_columna(int(m))
+                ws.cell(row=row, column=col, value=monto)
+
+        # ── TOTAL DESCUENTOS (row 35) ──
+        for p in planillas:
+            col = mes_a_columna(p["mes"])
+            ws.cell(row=35, column=col, value=p.get("total_descuentos", 0))
+
+        # ── TOTAL LIQUIDO (row 36) ──
+        for p in planillas:
+            col = mes_a_columna(p["mes"])
+            ws.cell(row=36, column=col, value=p.get("total_liquido", 0))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    ape = personal.get("apellidos", "").replace(" ", "_")
+    nom = personal.get("nombres", "").replace(" ", "_")
+    filename = f"Planilla_{ape}_{nom}.xlsx"
+
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 if __name__ == "__main__":
