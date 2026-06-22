@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react'
-<<<<<<< Updated upstream
+import { useSearchParams } from 'react-router-dom'
 import { dashboardApi } from '../services/api'
-import { Link } from 'react-router-dom'
-import { Users, FileSpreadsheet, Calendar, ArrowRight, Activity, TrendingUp, TrendingDown, DollarSign, Plus, FileText } from 'lucide-react'
+import { Activity, Users, FileSpreadsheet, Calendar, TrendingUp, TrendingDown, DollarSign, Filter, AlertTriangle, CheckCircle, X } from 'lucide-react'
+
+const MESES = [
+  { v: 1, l: 'Enero' }, { v: 2, l: 'Febrero' }, { v: 3, l: 'Marzo' },
+  { v: 4, l: 'Abril' }, { v: 5, l: 'Mayo' }, { v: 6, l: 'Junio' },
+  { v: 7, l: 'Julio' }, { v: 8, l: 'Agosto' }, { v: 9, l: 'Septiembre' },
+  { v: 10, l: 'Octubre' }, { v: 11, l: 'Noviembre' }, { v: 12, l: 'Diciembre' },
+]
+
+const currentYear = new Date().getFullYear()
+const ANIOS = Array.from({ length: currentYear - 1989 }, (_, i) => 1990 + i).reverse()
 
 interface Resumen {
   total_personal: number
@@ -14,31 +23,64 @@ interface Resumen {
 }
 
 export default function Dashboard() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [data, setData] = useState<Resumen | null>(null)
-=======
-import { personalApi } from '../services/api'
-import { Users, TrendingUp, UserPlus } from 'lucide-react'
-
-interface PersonalCount {
-  data: any[]
-  total: number
-}
-
-export default function Dashboard() {
-  const [totalPersonal, setTotalPersonal] = useState(0)
->>>>>>> Stashed changes
   const [loading, setLoading] = useState(true)
+  const [importResult, setImportResult] = useState<any>(null)
 
   useEffect(() => {
-    personalApi.list('', 1, 1, 'apellidos', 'asc')
-      .then((res: { data: PersonalCount }) => {
-        setTotalPersonal(res.data.total)
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+    try {
+      const raw = sessionStorage.getItem('ultima_importacion')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed.mes === filtroMes && parsed.anio === filtroAnio) {
+          setImportResult(parsed)
+        }
+        sessionStorage.removeItem('ultima_importacion')
+      }
+    } catch {}
   }, [])
 
-  const mesActual = new Date().toLocaleDateString('es-PE', { month: 'long', year: 'numeric' })
+  const filtroMes = searchParams.get('mes') ? Number(searchParams.get('mes')) : ''
+  const filtroAnio = searchParams.get('anio') ? Number(searchParams.get('anio')) : ''
+
+  const setFiltroMes = (v: number | '') => {
+    const next = new URLSearchParams(searchParams)
+    if (v === '') { next.delete('mes') } else { next.set('mes', String(v)) }
+    if (!next.has('anio')) { next.delete('mes') }
+    setSearchParams(next, { replace: true })
+  }
+
+  const setFiltroAnio = (v: number | '') => {
+    const next = new URLSearchParams(searchParams)
+    if (v === '') { next.delete('anio') } else { next.set('anio', String(v)) }
+    if (!next.has('mes')) { next.delete('anio') }
+    setSearchParams(next, { replace: true })
+  }
+
+  const loadData = () => {
+    setLoading(true)
+    dashboardApi.getResumen(filtroMes || undefined, filtroAnio || undefined)
+      .then((res: { data: Resumen }) => setData(res.data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [filtroMes, filtroAnio])
+
+  const hayFiltro = filtroMes !== '' && filtroAnio !== ''
+  const tituloPeriodo = hayFiltro
+    ? `${MESES.find(m => m.v === filtroMes)?.l?.toUpperCase()} ${filtroAnio}`
+    : new Date().toLocaleDateString('es-PE', { month: 'long', year: 'numeric' }).toUpperCase()
+
+  const stats = [
+    { label: 'Total Personal', value: data?.total_personal || 0, icon: Users, bg: 'bg-red-600' },
+    { label: 'Planillas Creadas', value: data?.total_planillas || 0, icon: FileSpreadsheet, bg: 'bg-gray-700' },
+    { label: 'Total Haberes', value: formatCurrency(data?.total_haberes || 0), icon: TrendingUp, bg: 'bg-gray-500' },
+    { label: 'Total Descuentos', value: formatCurrency(data?.total_descuentos || 0), icon: TrendingDown, bg: 'bg-gray-400' },
+  ]
 
   if (loading) {
     return (
@@ -54,7 +96,6 @@ export default function Dashboard() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Bienvenido de nuevo</h2>
             <p className="text-gray-500 dark:text-gray-400 mt-1">Resumen de tu sistema de nóminas</p>
           </div>
-<<<<<<< Updated upstream
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[...Array(4)].map((_, key) => (
@@ -66,53 +107,12 @@ export default function Dashboard() {
                 </div>
                 <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse"></div>
               </div>
-=======
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h2>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Resumen general del sistema</p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {[...Array(2)].map((_, i) => (
-            <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-700">
-              <div className="skeleton w-24 h-4 mb-3"></div>
-              <div className="skeleton w-20 h-8"></div>
->>>>>>> Stashed changes
             </div>
           ))}
         </div>
       </div>
     )
   }
-
-  const currentMonth = new Date().toLocaleDateString('es-PE', { month: 'long', year: 'numeric' }).toUpperCase()
-
-  const stats = [
-    {
-      label: 'Total Personal',
-      value: data?.total_personal || 0,
-      icon: Users,
-      bg: 'bg-red-600',
-      link: '/personal'
-    },
-    {
-      label: 'Planillas Creadas',
-      value: data?.total_planillas || 0,
-      icon: FileSpreadsheet,
-      bg: 'bg-gray-700',
-      link: '/planillas'
-    },
-    {
-      label: 'Total Haberes',
-      value: formatCurrency(data?.total_haberes || 0),
-      icon: TrendingUp,
-      bg: 'bg-gray-500'
-    },
-    {
-      label: 'Total Descuentos',
-      value: formatCurrency(data?.total_descuentos || 0),
-      icon: TrendingDown,
-      bg: 'bg-gray-400'
-    },
-  ]
 
   return (
     <div className="space-y-8">
@@ -127,23 +127,54 @@ export default function Dashboard() {
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Bienvenido de nuevo</h2>
           <p className="text-gray-500 dark:text-gray-400 mt-1">Resumen de tu sistema de nóminas</p>
         </div>
-        <div className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-            <Calendar className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-4 py-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+            <Filter className="w-4 h-4 text-gray-500" />
+            <select
+              value={filtroMes}
+              onChange={e => setFiltroMes(e.target.value ? Number(e.target.value) : '')}
+              className="text-sm bg-transparent border-none outline-none text-gray-700 dark:text-gray-300 font-medium cursor-pointer"
+            >
+              <option value="">Todos los meses</option>
+              {MESES.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
+            </select>
+            <select
+              value={filtroAnio}
+              onChange={e => setFiltroAnio(e.target.value ? Number(e.target.value) : '')}
+              className="text-sm bg-transparent border-none outline-none text-gray-700 dark:text-gray-300 font-medium cursor-pointer"
+            >
+              <option value="">Todos los años</option>
+              {ANIOS.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
           </div>
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Fecha actual</p>
-            <p className="text-sm font-bold text-gray-900 dark:text-white">{currentMonth}</p>
+          <div className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+            <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+              <Calendar className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+                {hayFiltro ? 'Periodo filtrado' : 'Fecha actual'}
+              </p>
+              <p className="text-sm font-bold text-gray-900 dark:text-white">{tituloPeriodo}</p>
+            </div>
           </div>
         </div>
-<<<<<<< Updated upstream
       </div>
+
+      {hayFiltro && data?.total_planillas === 0 && (
+        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            No hay datos para el período seleccionado ({tituloPeriodo}). Todos los valores son cero.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         {stats.map((stat, idx) => (
-          <Link
+          <div
             key={idx}
-            to={stat.link || '#'}
             className="group bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-lg hover:border-gray-300 dark:hover:border-gray-600 transition-all duration-200"
           >
             <div className="flex items-start justify-between mb-4">
@@ -155,7 +186,7 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</p>
-          </Link>
+          </div>
         ))}
       </div>
 
@@ -167,16 +198,53 @@ export default function Dashboard() {
                 <FileSpreadsheet className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Planillas del Mes</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{data?.planillas_mes?.length || 0} registros</p>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                  {importResult ? 'Importación Exitosa' : (hayFiltro ? 'Planillas del Periodo' : 'Todas las Planillas')}
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {importResult ? `${importResult.total} registros importados` : `${data?.planillas_mes?.length || 0} registros`}
+                </p>
               </div>
             </div>
-            <Link to="/planillas" className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 transition-all">
-              Ver todas <ArrowRight className="w-4 h-4" />
-            </Link>
+            {importResult && (
+              <button onClick={() => setImportResult(null)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 transition-all">
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
 
-          {data?.planillas_mes && data.planillas_mes.length > 0 ? (
+          {importResult ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl">
+                <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
+                <p className="text-sm text-green-700 dark:text-green-400 font-medium">
+                  Datos importados correctamente para {MESES.find(m => m.v === importResult.mes)?.l} {importResult.anio}
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-bold text-green-700 dark:text-green-400">{importResult.total}</p>
+                  <p className="text-xs text-green-600 dark:text-green-400">Registros</p>
+                </div>
+                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{importResult.duplicados}</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">Duplicados</p>
+                </div>
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">
+                    S/ {Number(importResult.monto || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400">Monto Total</p>
+                </div>
+              </div>
+              {importResult.duplicados > 0 && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="w-4 h-4 inline mr-1" />
+                  Se encontraron {importResult.duplicados} empleados duplicados. Revisa la sección de importación para más detalles.
+                </div>
+              )}
+            </div>
+          ) : data?.planillas_mes && data.planillas_mes.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -189,7 +257,7 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.planillas_mes.slice(0, 6).map((p: any) => (
+                  {data.planillas_mes.slice(0, 10).map((p: any) => (
                     <tr key={p.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
@@ -224,55 +292,29 @@ export default function Dashboard() {
           ) : (
             <div className="text-center py-12">
               <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <FileText className="w-8 h-8 text-gray-400" />
+                <FileSpreadsheet className="w-8 h-8 text-gray-400" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Sin planillas registradas</h3>
-              <p className="text-gray-500 dark:text-gray-400 mb-6">Importa un archivo Excel o crea una planilla manualmente</p>
-              <Link to="/importar" className="btn-primary inline-flex items-center gap-2">
-                <Plus className="w-4 h-4" />
-                <span>Importar Planilla</span>
-              </Link>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+                {hayFiltro ? 'Sin datos para este período' : 'Sin planillas registradas'}
+              </h3>
+              <p className="text-gray-500 dark:text-gray-400">
+                {hayFiltro
+                  ? 'No hay planillas en el período seleccionado'
+                  : 'Importa un archivo Excel para comenzar'}
+              </p>
             </div>
           )}
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
-            <h3 className="text-base font-bold text-gray-900 dark:text-white mb-5 flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-                <Plus className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-              </div>
-              Acciones Rápidas
-            </h3>
-            <div className="space-y-3">
-              {[
-                { label: 'Nuevo Empleado', icon: Users, link: '/personal' },
-                { label: 'Crear Planilla', icon: FileSpreadsheet, link: '/planillas' },
-                { label: 'Importar Excel', icon: Activity, link: '/importar' },
-              ].map((action, idx) => (
-                <Link
-                  key={idx}
-                  to={action.link}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-left group border border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600"
-                >
-                  <div className="p-3 rounded-lg bg-gray-100 dark:bg-gray-700 group-hover:bg-red-600 transition-colors">
-                    <action.icon className="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:text-white transition-colors" />
-                  </div>
-                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors flex-1">{action.label}</span>
-                  <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-red-600 group-hover:translate-x-1 transition-all" />
-                </Link>
-              ))}
-            </div>
-          </div>
-
           <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl p-6 text-white shadow-lg">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
                 <DollarSign className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h3 className="font-bold text-lg">Resumen del Mes</h3>
-                <p className="text-white/70 text-sm">{currentMonth}</p>
+                <h3 className="font-bold text-lg">{hayFiltro ? 'Resumen del Periodo' : 'Resumen Total'}</h3>
+                <p className="text-white/70 text-sm">{tituloPeriodo}</p>
               </div>
             </div>
             <div className="space-y-3">
@@ -292,95 +334,39 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          <h4 className="font-bold text-gray-900 dark:text-white mb-4">Estadísticas</h4>
-          <div className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Personal activo</span>
-                <span className="text-sm font-semibold text-gray-900 dark:text-white">{data?.total_personal || 0} empleados</span>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
+            <h4 className="font-bold text-gray-900 dark:text-white mb-4">Resumen Financiero</h4>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Haberes</span>
+                </div>
+                <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(data?.total_haberes || 0)}</span>
               </div>
-              <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div className="h-full bg-red-600 rounded-full" style={{ width: '75%' }}></div>
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <TrendingDown className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Descuentos</span>
+                </div>
+                <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(data?.total_descuentos || 0)}</span>
               </div>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Planillas del mes</span>
-                <span className="text-sm font-semibold text-gray-900 dark:text-white">{data?.planillas_mes?.length || 0} planillas</span>
-              </div>
-              <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div className="h-full bg-gray-600 rounded-full" style={{ width: '60%' }}></div>
+              <div className="flex items-center justify-between p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-900/30">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-red-600 dark:text-red-400" />
+                  <span className="text-sm font-medium text-red-700 dark:text-red-400">Líquido a Pagar</span>
+                </div>
+                <span className="font-bold text-red-700 dark:text-red-400">{formatCurrency(data?.total_liquido || 0)}</span>
               </div>
             </div>
           </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          <h4 className="font-bold text-gray-900 dark:text-white mb-4">Resumen Financiero</h4>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Haberes</span>
-              </div>
-              <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(data?.total_haberes || 0)}</span>
-            </div>
-            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-              <div className="flex items-center gap-2">
-                <TrendingDown className="w-4 h-4 text-gray-500" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Descuentos</span>
-              </div>
-              <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(data?.total_descuentos || 0)}</span>
-            </div>
-            <div className="flex items-center justify-between p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-900/30">
-              <div className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-red-600 dark:text-red-400" />
-                <span className="text-sm font-medium text-red-700 dark:text-red-400">Líquido a Pagar</span>
-              </div>
-              <span className="font-bold text-red-700 dark:text-red-400">{formatCurrency(data?.total_liquido || 0)}</span>
-            </div>
-          </div>
-=======
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h2>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">Resumen general del sistema</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl p-5 text-white shadow-lg">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-red-100">Total Personal Docente</span>
-            <div className="p-2 bg-white/20 rounded-lg">
-              <Users className="w-5 h-5 text-white" />
-            </div>
-          </div>
-          <p className="text-3xl font-bold">{totalPersonal}</p>
-          <p className="text-xs text-red-100 mt-2">Docentes, auxiliares y trabajadores registrados</p>
-        </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Período Actual</span>
-            <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-              <UserPlus className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-            </div>
-          </div>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white capitalize">{mesActual}</p>
-          <p className="text-xs text-gray-500 mt-2">Gestión de planilla activa</p>
->>>>>>> Stashed changes
         </div>
       </div>
     </div>
   )
 }
-<<<<<<< Updated upstream
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(value)
 }
-=======
->>>>>>> Stashed changes

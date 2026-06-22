@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS personal (
     puesto VARCHAR(100),
     rd VARCHAR(50),
     uu VARCHAR(50),
-    activo BOOLEAN DEFAULT TRUE,
+    institucion VARCHAR(150),
+    distrito VARCHAR(100),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -29,8 +30,6 @@ CREATE TABLE IF NOT EXISTS planilla (
     personal_id INT NOT NULL REFERENCES personal(id),
     mes SMALLINT NOT NULL CHECK (mes BETWEEN 1 AND 12),
     anio SMALLINT NOT NULL CHECK (anio >= 1900),
-    institucion VARCHAR(200),
-    distrito VARCHAR(150),
     total_haberes NUMERIC(12,2) NOT NULL DEFAULT 0,
     total_descuentos NUMERIC(12,2) NOT NULL DEFAULT 0,
     total_liquido NUMERIC(12,2) GENERATED ALWAYS AS (total_haberes - total_descuentos) STORED,
@@ -56,10 +55,6 @@ CREATE TABLE IF NOT EXISTS descuentos (
     monto NUMERIC(12,2) NOT NULL DEFAULT 0,
     comentario TEXT
 );
-
--- Migración para añadir nuevas columnas (seguro para ejecutar múltiples veces)
-ALTER TABLE planilla ADD COLUMN IF NOT EXISTS institucion VARCHAR(200);
-ALTER TABLE planilla ADD COLUMN IF NOT EXISTS distrito VARCHAR(150);
 
 -- Índices para optimización
 CREATE INDEX IF NOT EXISTS idx_planilla_personal ON planilla(personal_id);

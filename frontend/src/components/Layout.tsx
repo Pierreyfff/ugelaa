@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Users, FileSpreadsheet, Upload, Download, Menu, LogOut, ChevronDown } from 'lucide-react'
+import { LayoutDashboard, Users, FileSpreadsheet, Upload, Download, Menu, LogOut, ChevronDown, Loader2 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
-import { useAuth } from '../App'
+import { useAuth, useTask } from '../App'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', desc: 'Resumen general' },
@@ -12,6 +12,7 @@ const navItems = [
 
 export default function Layout() {
   const { logout } = useAuth()
+  const { isProcessing } = useTask()
   const navigate = useNavigate()
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
@@ -180,6 +181,15 @@ export default function Layout() {
       {isMobile && sidebarVisible && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 lg:hidden" onClick={() => setSidebarVisible(false)}>
           <div className="absolute inset-y-0 left-0 w-72" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
+
+      {isProcessing && (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl px-8 py-6 flex items-center gap-4">
+            <Loader2 className="w-6 h-6 text-red-600 animate-spin" />
+            <span className="text-gray-900 dark:text-white font-medium">{isProcessing}</span>
+          </div>
         </div>
       )}
     </div>

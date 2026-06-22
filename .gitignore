@@ -18,7 +18,8 @@ frontend/build/
 .env.*.local
 
 # Uploads
-uploads/
+uploads/*
+!uploads/plantilla_nueva.xlsx
 
 # IDE
 .idea/

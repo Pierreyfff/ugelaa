@@ -1,7 +1,8 @@
 ﻿import { useState, useRef, useEffect } from 'react'
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, Users, LayoutList, FileType, ArrowRight, HelpCircle, AlertTriangle, DollarSign, Trash2, ChevronDown, Calendar, CalendarDays } from 'lucide-react'
-import { importarApi } from '../services/api'
-import ComboBox from '../components/ComboBox'
+import { useNavigate } from 'react-router-dom'
+import { Upload, FileSpreadsheet, AlertCircle, FileType, ArrowRight, HelpCircle, AlertTriangle, Calendar, Pencil, Trash2, ChevronDown, Loader2 } from 'lucide-react'
+import { importarApi, PYTHON_URL } from '../services/api'
+import { useTask } from '../App'
 
 const MESES = [
   { v: 1, l: 'Enero' }, { v: 2, l: 'Febrero' }, { v: 3, l: 'Marzo' },
@@ -14,29 +15,31 @@ const currentYear = new Date().getFullYear()
 const ANIOS = Array.from({ length: currentYear - 1989 }, (_, i) => 1990 + i).reverse()
 
 export default function Importar() {
+  const navigate = useNavigate()
+  const { setProcessing } = useTask()
   const [file, setFile] = useState<File | null>(null)
   const [mes, setMes] = useState<number>(new Date().getMonth() + 1)
   const [anio, setAnio] = useState<number>(currentYear)
   const [uploading, setUploading] = useState(false)
-  const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [validacion, setValidacion] = useState<any>(null)
-  const [showLimpiar, setShowLimpiar] = useState(true)
-  const [limpiarMes, setLimpiarMes] = useState<number>(new Date().getMonth() + 1)
-  const [limpiarAnio, setLimpiarAnio] = useState<number>(currentYear)
-  const [limpiando, setLimpiando] = useState(false)
-  const [cleanResult, setCleanResult] = useState<string | null>(null)
-  const [cleanError, setCleanError] = useState<string | null>(null)
   const [periodosImportados, setPeriodosImportados] = useState<any[]>([])
+  const [lockPeriodo, setLockPeriodo] = useState(false)
+  const [editDuplicados, setEditDuplicados] = useState<Record<string, { dni: string; nombre: string }>>({})
+  const [showLimpiar, setShowLimpiar] = useState(false)
+  const [limpiarMes, setLimpiarMes] = useState(0)
+  const [limpiarAnio, setLimpiarAnio] = useState(0)
+  const [limpiando, setLimpiando] = useState(false)
+  const [cleanError, setCleanError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     importarApi.periodos().then(res => {
       setPeriodosImportados(res.data.periodos || [])
     }).catch(() => {})
-  }, [result])
+  }, [])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0]
@@ -50,7 +53,6 @@ export default function Importar() {
     }
     setFile(f)
     setError(null)
-    setResult(null)
   }
 
   const handleDrop = (e: React.DragEvent) => {
@@ -65,23 +67,37 @@ export default function Importar() {
     setUploading(true)
     setIsLoading(true)
     setError(null)
-    setResult(null)
     setValidacion(null)
+    setProcessing('Validando archivo...')
 
     try {
       const formData = new FormData()
       formData.append('file', file)
 
-      const response = await fetch('/python/validate-excel', { method: 'POST', body: formData })
-      const data = await response.json()
-      if (response.ok) {
-        setValidacion(data)
-      } else {
-        setError(data.error || `Error ${response.status}`)
+      const response = await fetch(`${PYTHON_URL}/validate-excel`, { method: 'POST', body: formData })
+      const text = await response.text()
+      try {
+        const data = JSON.parse(text)
+        if (response.ok) {
+          setValidacion(data)
+          // Initialize editable duplicates by original index
+          const edits: Record<string, { dni: string; nombre: string }> = {}
+          ;(data.dnis_duplicados || []).forEach((item: any) => {
+            (item.empleados || []).forEach((emp: any) => {
+              edits[`idx_${emp.idx}`] = { dni: item.dni || '', nombre: emp.nombre || '' }
+            })
+          })
+          setEditDuplicados(edits)
+        } else {
+          setError(data.error || `Error del servidor`)
+        }
+      } catch {
+        setError(`Error del servidor (${response.status}). Verifica que el backend esté funcionando.`)
       }
     } catch (err) {
       setError('Error de conexión')
     } finally {
+      setProcessing(null)
       setUploading(false)
       setIsLoading(false)
     }
@@ -89,6 +105,7 @@ export default function Importar() {
 
   const handleConfirmUpload = async () => {
     if (!file) return
+    setProcessing('Importando datos...')
     setUploading(true)
     setIsLoading(true)
     setValidacion(null)
@@ -99,16 +116,38 @@ export default function Importar() {
       formData.append('mes', String(mes))
       formData.append('anio', String(anio))
 
-      const response = await fetch('/python/process-excel', { method: 'POST', body: formData })
-      const data = await response.json()
+      // Send editable duplicates as JSON
+      const editsArray = Object.entries(editDuplicados).map(([key, val]) => ({
+        idx: parseInt(key.replace('idx_', '')),
+        dni: val.dni,
+        nombre: val.nombre,
+      }))
+      formData.append('edits', JSON.stringify(editsArray))
+
+      const response = await fetch(`${PYTHON_URL}/process-excel`, { method: 'POST', body: formData })
       if (response.ok) {
-        setResult(data)
-      } else {
-        setError(data.error || `Error ${response.status}`)
+        sessionStorage.setItem('ultima_importacion', JSON.stringify({
+          mes,
+          anio,
+          total: validacion?.total_empleados || 0,
+          duplicados: validacion?.dnis_duplicados?.length || 0,
+          monto: validacion?.monto_total || 0,
+          timestamp: Date.now()
+        }))
+        navigate(`/?mes=${mes}&anio=${anio}`)
+        return
       }
-    } catch (err) {
-      setError('Error de conexión')
+      const text = await response.text()
+      try {
+        const data = JSON.parse(text)
+        setError(data.error || `Error del servidor`)
+      } catch {
+        setError(`Error del servidor (${response.status}). Verifica que el backend esté funcionando.`)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error de conexión')
     } finally {
+      setProcessing(null)
       setUploading(false)
       setIsLoading(false)
     }
@@ -120,11 +159,13 @@ export default function Importar() {
 
   const resetForm = () => {
     setFile(null)
-    setResult(null)
     setError(null)
     setValidacion(null)
+    setLockPeriodo(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
+
+  const periodoYaImportado = periodosImportados.some((p: any) => p.mes === mes && p.anio === anio)
 
   if (isLoading) {
     return (
@@ -186,20 +227,28 @@ export default function Importar() {
                 <p className="text-xs text-gray-500 dark:text-gray-400">Mes y año de la planilla</p>
               </div>
             </div>
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Mes</label>
-                <select value={mes} onChange={e => setMes(Number(e.target.value))} className="input">
-                  {MESES.map(m => (<option key={m.v} value={m.v}>{m.l}</option>))}
-                </select>
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Mes</label>
+                  <select value={mes} onChange={e => setMes(Number(e.target.value))} disabled={lockPeriodo} className="input">
+                    {MESES.map(m => (<option key={m.v} value={m.v}>{m.l}</option>))}
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Año</label>
+                  <select value={anio} onChange={e => setAnio(Number(e.target.value))} disabled={lockPeriodo} className="input">
+                    {ANIOS.map(y => (<option key={y} value={y}>{y}</option>))}
+                  </select>
+                </div>
               </div>
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Año</label>
-                <select value={anio} onChange={e => setAnio(Number(e.target.value))} className="input">
-                  {ANIOS.map(y => (<option key={y} value={y}>{y}</option>))}
-                </select>
-              </div>
-            </div>
+              {periodoYaImportado && (
+                <div className="mt-3 flex items-center gap-2 p-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <span className="text-xs text-amber-700 dark:text-amber-400">
+                    Este período ya fue importado. Usa "Limpiar Importación" si deseas reimportarlo.
+                  </span>
+                </div>
+              )}
           </div>
 
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700">
@@ -250,6 +299,173 @@ export default function Importar() {
             )}
           </div>
 
+          {validacion && (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border-2 border-amber-300 dark:border-amber-600">
+              <div className="flex items-center gap-4 mb-5">
+                <div className="w-14 h-14 bg-amber-500 rounded-2xl flex items-center justify-center">
+                  <AlertTriangle className="w-7 h-7 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-amber-700 dark:text-amber-400">Vista Previa - Resumen de Datos</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {validacion.dnis_duplicados?.length > 0
+                      ? `Se encontraron registros duplicados. Edita los DNI/nombre para resolverlos.`
+                      : 'No se encontraron duplicados. Los datos están listos para importar.'}
+                  </p>
+                </div>
+              </div>
+              
+              {(() => {
+                const total = validacion.total_empleados || 0
+                const exactosBase = validacion.exactos || 0
+                const exactosIndices: number[] = validacion.exactos_indices || []
+                let resolved = 0
+                Object.entries(editDuplicados).forEach(([key, val]) => {
+                  const empIdx = parseInt(key.replace('idx_', ''))
+                  if (!exactosIndices.includes(empIdx)) return
+                  const grupo = (validacion.dnis_duplicados || []).find((d: any) =>
+                    d.empleados?.some((e: any) => e.idx === empIdx)
+                  )
+                  if (grupo && val.dni !== grupo.dni) resolved++
+                })
+                const exactosFinal = Math.max(exactosBase - resolved, 0)
+                const aImportar = total - exactosFinal
+                return (
+                  <div className="grid grid-cols-4 gap-3 mb-4">
+                    <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">{total}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Encontrados</p>
+                    </div>
+                    <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{exactosFinal}</p>
+                      <p className="text-xs leading-tight text-amber-600 dark:text-amber-400">
+                        Duplicados exactos
+                        <span className="block text-[10px] opacity-80">(mismo DNI+nombre, se descartan)</span>
+                      </p>
+                    </div>
+                    <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-green-700 dark:text-green-400">{aImportar}</p>
+                      <p className="text-xs text-green-600 dark:text-green-400">A importar</p>
+                    </div>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">S/ {Number(validacion.monto_total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
+                      <p className="text-xs text-blue-600 dark:text-blue-400">Monto Total</p>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {(Object.keys(editDuplicados).length > 0) && (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Pencil className="w-4 h-4 text-amber-600" />
+                    <p className="font-medium text-amber-800 dark:text-amber-300">Editar registros duplicados:</p>
+                  </div>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {Object.entries(editDuplicados).map(([key, val]) => {
+                      const empIdx = parseInt(key.replace('idx_', ''))
+                      const allEmpleados = (validacion.dnis_duplicados || []).flatMap((d: any) => d.empleados || [])
+                      const emp = allEmpleados.find((e: any) => e.idx === empIdx)
+                      return (
+                        <div key={key} className="bg-amber-50 dark:bg-amber-900/30 rounded-lg p-3 text-sm border border-amber-200 dark:border-amber-700">
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1">
+                              <label className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-medium">DNI</label>
+                              <input
+                                type="text"
+                                value={val.dni}
+                                onChange={e => setEditDuplicados(prev => ({ ...prev, [key]: { ...prev[key], dni: e.target.value } }))}
+                                className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-amber-300 dark:border-amber-600 rounded text-xs focus:outline-none focus:border-amber-500 text-gray-900 dark:text-white mt-0.5"
+                                maxLength={8}
+                              />
+                            </div>
+                            <div className="flex-[2]">
+                              <label className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-medium">Nombre</label>
+                              <input
+                                type="text"
+                                value={val.nombre}
+                                onChange={e => setEditDuplicados(prev => ({ ...prev, [key]: { ...prev[key], nombre: e.target.value } }))}
+                                className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-amber-300 dark:border-amber-600 rounded text-xs focus:outline-none focus:border-amber-500 text-gray-900 dark:text-white mt-0.5"
+                              />
+                            </div>
+                            {emp && (
+                              <div className="text-right shrink-0">
+                                <label className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-medium">Monto</label>
+                                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mt-1">
+                                  S/ {Number(emp.monto || 0).toFixed(2)}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {periodoYaImportado ? (
+                <div className="flex flex-col gap-3 mt-4">
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-700 dark:text-red-400">
+                      Este período ({mesNombre} {anio}) ya fue importado anteriormente. Usa la sección "Limpiar Importación" a la derecha para eliminarlo y reimportarlo.
+                    </p>
+                  </div>
+                  <button onClick={handleCancelValidation} className="btn-secondary">Cancelar</button>
+                </div>
+              ) : (
+                <div className="flex gap-3 mt-4">
+                  <button onClick={handleCancelValidation} className="btn-secondary flex-1">Cancelar</button>
+                  <button onClick={handleConfirmUpload} disabled={uploading} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                    {uploading ? (
+                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    {uploading
+                      ? 'Importando...'
+                      : `Importar ${(() => {
+                          const total = validacion.total_empleados || 0
+                          const exactosBase = validacion.exactos || 0
+                          const exactosIndices: number[] = validacion.exactos_indices || []
+                          let resolved = 0
+                          Object.entries(editDuplicados).forEach(([key, val]) => {
+                            const empIdx = parseInt(key.replace('idx_', ''))
+                            if (!exactosIndices.includes(empIdx)) return
+                            const grupo = (validacion.dnis_duplicados || []).find((d: any) =>
+                              d.empleados?.some((e: any) => e.idx === empIdx)
+                            )
+                            if (grupo && val.dni !== grupo.dni) resolved++
+                          })
+                          return total - Math.max(exactosBase - resolved, 0)
+                        })()} registros`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!validacion && (
+            <>
+              {file && (
+                <div className="flex gap-3 mt-4">
+                  <button onClick={resetForm} className="btn-secondary">Limpiar</button>
+                  <button onClick={handleValidate} disabled={!file || uploading} className="btn-primary flex items-center gap-2 disabled:opacity-50">
+                    {uploading ? (
+                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    {uploading ? 'Procesando...' : `Procesar - ${mesNombre} ${anio}`}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="space-y-5">
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div
               className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
@@ -261,7 +477,7 @@ export default function Importar() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-gray-900 dark:text-white">Limpiar Importación</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Elimina planillas de un período específico</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Elimina planillas de un período</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -279,7 +495,7 @@ export default function Importar() {
                 {periodosImportados.length > 0 && (
                   <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
                     <div className="flex items-start gap-3">
-                      <CalendarDays className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                      <Calendar className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                       <div>
                         <p className="text-sm font-medium text-blue-700 dark:text-blue-400">Períodos con importaciones</p>
                         <div className="flex flex-wrap gap-1.5 mt-2">
@@ -305,21 +521,29 @@ export default function Importar() {
                 <div className="flex gap-4">
                   <div className="flex-1">
                     <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Mes</label>
-                    <ComboBox
-                      options={MESES.map((m: any) => ({ value: m.v, label: m.l }))}
+                    <select
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:border-red-500 transition-all text-gray-900 dark:text-white"
                       value={limpiarMes}
-                      onChange={(v) => setLimpiarMes(Number(v))}
-                      placeholder="Seleccionar mes"
-                    />
+                      onChange={e => setLimpiarMes(Number(e.target.value))}
+                    >
+                      <option value={0}>Seleccionar mes</option>
+                      {MESES.filter(m => m).map((m: any) => (
+                        <option key={m.v} value={m.v}>{m.l}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="flex-1">
                     <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Año</label>
-                    <ComboBox
-                      options={ANIOS.map((y: number) => ({ value: y, label: String(y) }))}
+                    <select
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:border-red-500 transition-all text-gray-900 dark:text-white"
                       value={limpiarAnio}
-                      onChange={(v) => setLimpiarAnio(Number(v))}
-                      placeholder="Seleccionar año"
-                    />
+                      onChange={e => setLimpiarAnio(Number(e.target.value))}
+                    >
+                      <option value={0}>Seleccionar año</option>
+                      {ANIOS.map((a: number) => (
+                        <option key={a} value={a}>{a}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -329,7 +553,7 @@ export default function Importar() {
                     <div>
                       <p className="text-sm font-medium text-red-700 dark:text-red-400">¿Estás seguro?</p>
                       <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                        Esta acción eliminará todas las planillas, ingresos y descuentos del período {MESES.find((m: any) => m.v === limpiarMes)?.l} {limpiarAnio}. Los empleados registrados no serán afectados.
+                        Esta acción eliminará TODAS las planillas, ingresos y descuentos del período seleccionado ({MESES.find((m: any) => m.v === limpiarMes)?.l || '...'} {limpiarAnio || '...'}). Los empleados sin planillas en otros períodos también serán eliminados.
                       </p>
                     </div>
                   </div>
@@ -337,272 +561,81 @@ export default function Importar() {
 
                 <button
                   onClick={async () => {
+                    if (!limpiarMes || !limpiarAnio) return
+                    setProcessing('Limpiando importación...')
                     setLimpiando(true)
-                    setCleanResult(null)
                     setCleanError(null)
                     try {
-                      const res = await importarApi.limpiar(limpiarMes, limpiarAnio)
-                      setCleanResult(res.data.message)
-                      setShowLimpiar(false)
-                      // Reload periods
-                      const pRes = await importarApi.periodos()
-                      setPeriodosImportados(pRes.data.periodos || [])
+                      await importarApi.limpiar(limpiarMes, limpiarAnio)
+                      setLimpiarMes(0)
+                      setLimpiarAnio(0)
+                      const res = await importarApi.periodos()
+                      setPeriodosImportados(res.data.periodos || [])
                     } catch (err: any) {
                       setCleanError(err.response?.data?.error || err.message || 'Error al limpiar')
                     } finally {
+                      setProcessing(null)
                       setLimpiando(false)
                     }
                   }}
-                  disabled={limpiando}
-                  className="w-full btn-danger flex items-center justify-center gap-2"
+                  disabled={limpiando || !limpiarMes || !limpiarAnio}
+                  className="w-full py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2"
                 >
                   {limpiando ? (
-                    <span className="animate-spin inline-block w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <Trash2 className="w-4 h-4" />
                   )}
-                  {limpiando ? 'Limpiando...' : `Limpiar ${MESES.find((m: any) => m.v === limpiarMes)?.l} ${limpiarAnio}`}
+                  {limpiando ? 'Limpiando...' : `Limpiar ${MESES.find((m: any) => m.v === limpiarMes)?.l || ''} ${limpiarAnio || ''}`}
                 </button>
 
-                {cleanResult && (
-                  <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                    <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-                    <span className="text-sm text-green-700 dark:text-green-400">{cleanResult}</span>
-                  </div>
-                )}
                 {cleanError && (
                   <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                     <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
                     <span className="text-sm text-red-700 dark:text-red-400">{cleanError}</span>
                   </div>
                 )}
+
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertTriangle className="w-4 h-4 text-red-600" />
+                    <p className="text-xs font-semibold text-red-600 uppercase tracking-wider">Zona de Peligro</p>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    Elimina TODOS los datos del sistema (personal, planillas, ingresos y descuentos). Esta acción no se puede deshacer.
+                  </p>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm('¿Estás seguro de eliminar TODOS los datos? Esta acción eliminará personal, planillas, ingresos y descuentos permanentemente.')) return
+                      setProcessing('Eliminando todos los datos...')
+                      setLimpiando(true)
+                      setCleanError(null)
+                      try {
+                        await importarApi.limpiarTodo()
+                        setLimpiarMes(0)
+                        setLimpiarAnio(0)
+                        const res = await importarApi.periodos()
+                        setPeriodosImportados(res.data.periodos || [])
+                      } catch (err: any) {
+                        setCleanError(err.response?.data?.error || err.message || 'Error al limpiar')
+                      } finally {
+                        setProcessing(null)
+                        setLimpiando(false)
+                      }
+                    }}
+                    disabled={limpiando}
+                    className="w-full py-2.5 bg-red-700 hover:bg-red-800 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2"
+                  >
+                    {limpiando ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                    {limpiando ? 'Eliminando...' : 'Eliminar todos los datos'}
+                  </button>
+                </div>
               </div>
             )}
-          </div>
-
-          {result && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border-2 border-red-200 dark:border-red-800">
-              <div className="flex items-center gap-4 mb-5">
-                <div className="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center">
-                  <CheckCircle className="w-7 h-7 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-red-700 dark:text-red-400">Importación Exitosa!</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Período: {mesNombre} {anio}</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {[
-                  { label: 'Bloques', value: result.personal ?? result.personal_count ?? 0, icon: Users },
-                  { label: 'Creados', value: result.personal_creados ?? 0, icon: CheckCircle },
-                  { label: 'Planillas', value: result.planillas_creadas ?? 0, icon: FileSpreadsheet },
-                  { label: 'Total', value: result.planillas ?? result.planillas_count ?? 0, icon: LayoutList },
-                ].map(({ label, value, icon: Icon }, idx) => (
-                  <div key={idx} className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 border border-gray-200 dark:border-gray-600 text-center">
-                    <Icon className="w-5 h-5 text-gray-600 dark:text-gray-400 mx-auto mb-2" />
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-                  </div>
-                ))}
-              </div>
-              
-              {(result.monto_total || result.monto_total === 0) && (
-                <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800 flex items-center gap-3">
-                  <DollarSign className="w-6 h-6 text-green-600" />
-                  <div>
-                    <p className="text-sm font-medium text-green-700 dark:text-green-400">Monto Total Liquido</p>
-                    <p className="text-xl font-bold text-green-800 dark:text-green-300">S/ {Number(result.monto_total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                </div>
-              )}
-
-              {(result.dnis_duplicados?.length > 0 || result.nombres_duplicados?.length > 0) && (
-                <div className="mt-4 space-y-3">
-                  {result.dnis_duplicados?.length > 0 && (
-                    <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
-                      <div className="flex items-center gap-2 mb-2">
-                        <AlertTriangle className="w-5 h-5 text-amber-600" />
-                        <p className="font-medium text-amber-800 dark:text-amber-300">DNIs Duplicados ({result.dnis_duplicados.length})</p>
-                      </div>
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {result.dnis_duplicados.map((item: any, idx: number) => (
-                          <div key={idx} className="border-b border-amber-200 dark:border-amber-700 pb-2 last:border-0">
-                            <div className="flex justify-between text-sm font-medium text-amber-800 dark:text-amber-300">
-                              <span>DNI: {item.dni}</span>
-                              <span>x{item.count}</span>
-                            </div>
-                            <div className="mt-1 space-y-1">
-                              {item.empleados?.map((emp: any, eidx: number) => (
-                                <div key={eidx} className="text-xs text-amber-700 dark:text-amber-400 flex justify-between pl-2">
-                                  <span>{emp.nombre || '-'}</span>
-                                  <span className="font-medium">S/ {Number(emp.monto || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {result.nombres_duplicados?.length > 0 && (
-                    <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-200 dark:border-orange-800">
-                      <div className="flex items-center gap-2 mb-2">
-                        <AlertTriangle className="w-5 h-5 text-orange-600" />
-                        <p className="font-medium text-orange-800 dark:text-orange-300">Nombres Duplicados ({result.nombres_duplicados.length})</p>
-                      </div>
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {result.nombres_duplicados.map((item: any, idx: number) => (
-                          <div key={idx} className="border-b border-orange-200 dark:border-orange-700 pb-2 last:border-0">
-                            <div className="flex justify-between text-sm font-medium text-orange-800 dark:text-orange-300">
-                              <span>{item.nombre}</span>
-                              <span>x{item.count}</span>
-                            </div>
-                            <div className="mt-1 space-y-1">
-                              {item.empleados?.map((emp: any, eidx: number) => (
-                                <div key={eidx} className="text-xs text-orange-700 dark:text-orange-400 flex justify-between pl-2">
-                                  <span>DNI: {emp.dni || '-'}</span>
-                                  <span className="font-medium">S/ {Number(emp.monto || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          {validacion && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border-2 border-amber-300 dark:border-amber-600">
-              <div className="flex items-center gap-4 mb-5">
-                <div className="w-14 h-14 bg-amber-500 rounded-2xl flex items-center justify-center">
-                  <AlertTriangle className="w-7 h-7 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-amber-700 dark:text-amber-400">Advertencia - Datos Duplicados</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Se encontraron duplicados en el archivo. ¿Desea continuar?</p>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-3 gap-4 mb-4">
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 text-center">
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{validacion.total_empleados}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Total Registros</p>
-                </div>
-                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 text-center">
-                  <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{validacion.dnis_duplicados?.length || 0}</p>
-                  <p className="text-xs text-amber-600 dark:text-amber-400">DNIs Duplicados</p>
-                </div>
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 text-center">
-                  <p className="text-2xl font-bold text-green-700 dark:text-green-400">S/ {Number(validacion.monto_total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
-                  <p className="text-xs text-green-600 dark:text-green-400">Monto Total</p>
-                </div>
-              </div>
-
-              {(validacion.dnis_duplicados?.length > 0) && (
-                <div className="mb-4">
-                  <p className="font-medium text-amber-800 dark:text-amber-300 mb-2">Detalle DNIs Duplicados:</p>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {validacion.dnis_duplicados.map((item: any, idx: number) => (
-                      <div key={idx} className="bg-amber-50 dark:bg-amber-900/30 rounded-lg p-2 text-sm">
-                        <div className="flex justify-between font-medium text-amber-800 dark:text-amber-300">
-                          <span>DNI: {item.dni}</span>
-                          <span>x{item.count}</span>
-                        </div>
-                        <div className="mt-1 space-y-1">
-                          {item.empleados?.slice(0, 3).map((emp: any, eidx: number) => (
-                            <div key={eidx} className="text-xs text-amber-700 dark:text-amber-400 flex justify-between pl-2">
-                              <span>{emp.nombre || '-'}</span>
-                              <span>S/ {Number(emp.monto || 0).toFixed(2)}</span>
-                            </div>
-                          ))}
-                          {item.count > 3 && (
-                            <div className="text-xs text-amber-600 dark:text-amber-500 pl-2">...y {item.count - 3} más</div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-3 mt-4">
-                <button onClick={handleCancelValidation} className="btn-secondary flex-1">Cancelar</button>
-                <button
-                  onClick={async () => {
-                    setLimpiando(true)
-                    setCleanResult(null)
-                    setCleanError(null)
-                    try {
-                      const res = await importarApi.limpiar(mes, anio)
-                      setCleanResult(res.data.message)
-                      handleCancelValidation()
-                    } catch (err: any) {
-                      setCleanError(err.response?.data?.error || err.message || 'Error al limpiar')
-                    } finally {
-                      setLimpiando(false)
-                    }
-                  }}
-                  disabled={limpiando}
-                  className="btn-danger flex-1 flex items-center justify-center gap-2"
-                >
-                  {limpiando ? (
-                    <span className="animate-spin inline-block w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full" />
-                  ) : (
-                    <Trash2 className="w-4 h-4" />
-                  )}
-                  {limpiando ? 'Limpiando...' : `Limpiar ${mesNombre} ${anio}`}
-                </button>
-                <button onClick={handleConfirmUpload} disabled={uploading} className="btn-primary flex-1 flex items-center justify-center gap-2">
-                  <Upload className="w-4 h-4" /> Confirmar e Importar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {!validacion && (
-            <>
-              {file && (
-                <div className="flex gap-3 mt-4">
-                  <button onClick={resetForm} className="btn-secondary">Limpiar</button>
-                </div>
-              )}
-              <button onClick={handleValidate} disabled={!file || uploading} className="btn-primary flex items-center gap-2 mt-4 disabled:opacity-50">
-                <Upload className="w-4 h-4" /> Importar - {mesNombre} {anio}
-              </button>
-            </>
-          )}
-        </div>
-
-        <div className="space-y-5">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-gray-600 rounded-xl">
-                <LayoutList className="w-5 h-5 text-white" />
-              </div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Formato Excel</h3>
-            </div>
-            <div className="bg-gray-900 rounded-xl p-4 text-xs font-mono text-gray-300 space-y-1">
-              <div className="flex gap-2 text-gray-500 border-b border-gray-700 pb-2 mb-2">
-                <span className="w-8">Col A</span>
-                <span className="w-20">Col B</span>
-                <span className="w-20">Col C</span>
-                <span className="flex-1">Col D</span>
-              </div>
-              <p><span className="text-gray-500">|</span> <span className="text-green-400">IE 20131</span> <span className="text-gray-500">|</span></p>
-              <p className="text-red-400">HABERES</p>
-              <p><span className="text-gray-500">|</span> Apellidos <span className="text-gray-500">|</span> BASICA <span className="text-gray-500">|</span> 0.03</p>
-              <p><span className="text-gray-500">|</span> Nombres <span className="text-gray-500">|</span> DETALLE <span className="text-gray-500">|</span> MES</p>
-              <p><span className="text-gray-500">|</span> <span className="text-yellow-400">Distrito</span> <span className="text-gray-500">|</span> ...</p>
-              <p><span className="text-gray-500">|</span> Puesto <span className="text-gray-500">|</span> ...</p>
-              <p className="text-gray-400 mt-2">DSCTOS</p>
-              <p><span className="text-gray-500">|</span> DL20530 <span className="text-gray-500">|</span> 3.80</p>
-              <p className="text-xs text-gray-500 mt-2">Institución → Col B (fila arriba de HABERES)</p>
-              <p className="text-xs text-gray-500">Distrito → Col B (debajo del nombre)</p>
-            </div>
           </div>
 
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-700">
@@ -617,7 +650,7 @@ export default function Importar() {
                 { label: 'Nombre', desc: 'Col B - Fila HABERES' },
                 { label: 'Institución', desc: 'Col B - Fila arriba de HABERES' },
                 { label: 'Distrito', desc: 'Col B - Debajo del nombre (opcional)' },
-                { label: 'Puesto', desc: 'Col B - Después del distrito' },
+                { label: 'Puesto', desc: 'Col B - Después del nombre' },
                 { label: 'DNI', desc: 'Col B - DNI' },
                 { label: 'Ingresos', desc: 'Sección HABERES (Col C)' },
                 { label: 'Descuentos', desc: 'Sección DSCTOS (Col C)' },

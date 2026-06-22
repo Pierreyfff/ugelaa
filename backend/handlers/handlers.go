@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"planillas-backend/models"
@@ -94,7 +95,7 @@ func ListarPersonal(c *gin.Context) {
 	offset := (page - 1) * limit
 
 	// Validar campos de ordenamiento
-	validSortFields := map[string]bool{"apellidos": true, "nombres": true, "dni": true, "created_at": true, "activo": true}
+	validSortFields := map[string]bool{"apellidos": true, "nombres": true, "dni": true, "created_at": true}
 	if !validSortFields[sortBy] {
 		sortBy = "apellidos"
 	}
@@ -107,14 +108,6 @@ func ListarPersonal(c *gin.Context) {
 	// Filtro por búsqueda
 	if search != "" {
 		baseQuery = baseQuery.Where("nombres ILIKE ? OR apellidos ILIKE ? OR dni ILIKE ?", "%"+search+"%", "%"+search+"%", "%"+search+"%")
-	}
-
-	// Filtro por estado activo
-	activo := c.Query("activo")
-	if activo == "true" {
-		baseQuery = baseQuery.Where("activo = ?", true)
-	} else if activo == "false" {
-		baseQuery = baseQuery.Where("activo = ?", false)
 	}
 
 	// Filtro por puesto
@@ -135,13 +128,32 @@ func ListarPersonal(c *gin.Context) {
 		baseQuery = baseQuery.Where("uu ILIKE ?", "%"+uu+"%")
 	}
 
-	// Filtro por mes/año de creación
+	// Filtro por institución educativa
+	institucion := c.Query("institucion")
+	if institucion != "" {
+		baseQuery = baseQuery.Where("institucion ILIKE ?", "%"+institucion+"%")
+	}
+
+	// Filtro por distrito
+	distrito := c.Query("distrito")
+	if distrito != "" {
+		baseQuery = baseQuery.Where("distrito ILIKE ?", "%"+distrito+"%")
+	}
+
+	// Filtro por mes/año de planilla
 	mes := c.Query("mes")
 	anio := c.Query("anio")
 	if mes != "" && anio != "" {
-		baseQuery = baseQuery.Where("EXTRACT(MONTH FROM created_at) = ? AND EXTRACT(YEAR FROM created_at) = ?", mes, anio)
+		mesInt, _ := strconv.Atoi(mes)
+		anioInt, _ := strconv.Atoi(anio)
+		if mesInt >= 1 && mesInt <= 12 && anioInt >= 1900 {
+			baseQuery = baseQuery.Where("EXISTS (SELECT 1 FROM planilla WHERE planilla.personal_id = personal.id AND planilla.mes = ? AND planilla.anio = ?)", mesInt, anioInt)
+		}
 	} else if anio != "" {
-		baseQuery = baseQuery.Where("EXTRACT(YEAR FROM created_at) = ?", anio)
+		anioInt, _ := strconv.Atoi(anio)
+		if anioInt >= 1900 {
+			baseQuery = baseQuery.Where("EXISTS (SELECT 1 FROM planilla WHERE planilla.personal_id = personal.id AND planilla.anio = ?)", anioInt)
+		}
 	}
 
 	baseQuery.Count(&total)
@@ -181,12 +193,41 @@ func BuscarPersonal(c *gin.Context) {
 
 	var personal []models.Personal
 	db.Where("nombres ILIKE ? OR apellidos ILIKE ? OR dni ILIKE ?", "%"+search+"%", "%"+search+"%", "%"+search+"%").
-		Where("activo = ?", true).
 		Limit(limit).
 		Order("apellidos, nombres").
 		Find(&personal)
 
 	c.JSON(http.StatusOK, gin.H{"data": personal})
+}
+
+func BuscarInstituciones(c *gin.Context) {
+	db := getDB(c)
+	q := c.Query("q")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	var results []string
+	query := db.Model(&models.Personal{}).Select("DISTINCT institucion").Where("institucion IS NOT NULL AND institucion != ''")
+	if q != "" {
+		query = query.Where("institucion ILIKE ?", "%"+q+"%")
+	}
+	query.Order("institucion ASC").Limit(limit).Pluck("institucion", &results)
+
+	c.JSON(http.StatusOK, gin.H{"data": results})
+}
+
+func BuscarDistritos(c *gin.Context) {
+	db := getDB(c)
+	q := c.Query("q")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	var results []string
+	query := db.Model(&models.Personal{}).Select("DISTINCT distrito").Where("distrito IS NOT NULL AND distrito != ''")
+	if q != "" {
+		query = query.Where("distrito ILIKE ?", "%"+q+"%")
+	}
+	query.Order("distrito ASC").Limit(limit).Pluck("distrito", &results)
+
+	c.JSON(http.StatusOK, gin.H{"data": results})
 }
 
 func ObtenerPersonal(c *gin.Context) {
@@ -291,7 +332,7 @@ func ListarPlanillas(c *gin.Context) {
 	}
 	if anio != "" {
 		anioInt, _ := strconv.Atoi(anio)
-		if anioInt > 2000 {
+		if anioInt >= 1900 {
 			baseQuery = baseQuery.Where("anio = ?", anioInt)
 		}
 	}
@@ -385,11 +426,9 @@ func EditarPlanillaCompleta(c *gin.Context) {
 	}
 
 	var input struct {
-		PersonalID  uint   `json:"personal_id"`
-		Mes         int16  `json:"mes"`
-		Anio        int16  `json:"anio"`
-		Institucion string `json:"institucion"`
-		Distrito    string `json:"distrito"`
+		PersonalID uint   `json:"personal_id"`
+		Mes        int16  `json:"mes"`
+		Anio       int16  `json:"anio"`
 		Ingresos   []struct {
 			ID    uint    `json:"id"`
 			Tipo  string  `json:"tipo"`
@@ -417,12 +456,6 @@ func EditarPlanillaCompleta(c *gin.Context) {
 	}
 	if input.Anio > 0 {
 		updates["anio"] = input.Anio
-	}
-	if input.Institucion != "" {
-		updates["institucion"] = input.Institucion
-	}
-	if input.Distrito != "" {
-		updates["distrito"] = input.Distrito
 	}
 
 	if len(updates) > 0 {
@@ -678,12 +711,12 @@ func importarData(db *gorm.DB, data *models.DataExcel) (int, int, []string) {
 		found := false
 
 		if p.DNI != "" {
-			if err := db.Where("dni = ?", p.DNI).First(&existing).Error; err == nil {
+			if err := db.Where("dni ILIKE ?", p.DNI).First(&existing).Error; err == nil {
 				found = true
 			}
 		}
 		if !found && p.Nombres != "" {
-			if err := db.Where("nombres = ?", p.Nombres).First(&existing).Error; err == nil {
+			if err := db.Where("nombres ILIKE ?", p.Nombres).First(&existing).Error; err == nil {
 				found = true
 			}
 		}
@@ -714,22 +747,20 @@ func importarData(db *gorm.DB, data *models.DataExcel) (int, int, []string) {
 
 		if planilla.ID == 0 {
 			planilla = models.Planilla{
-				PersonalID:  personalID,
-				Mes:         int16(pl.Mes),
-				Anio:        int16(pl.Anio),
-				Institucion: pl.Institucion,
-				Distrito:    pl.Distrito,
-				CreadoEn:    time.Now(),
+				PersonalID: personalID,
+				Mes:        int16(pl.Mes),
+				Anio:       int16(pl.Anio),
+				CreadoEn:   time.Now(),
 			}
 			db.Create(&planilla)
 			planillasCreadas++
-		}
 
-		for _, ing := range pl.Ingresos {
-			db.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: ing.Tipo, Monto: ing.Monto})
-		}
-		for _, desc := range pl.Descuentos {
-			db.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: desc.Tipo, Monto: desc.Monto})
+			for _, ing := range pl.Ingresos {
+				db.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: ing.Tipo, Monto: ing.Monto})
+			}
+			for _, desc := range pl.Descuentos {
+				db.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: desc.Tipo, Monto: desc.Monto})
+			}
 		}
 
 		// Recalculate totals
@@ -806,6 +837,21 @@ func ImportarExcel(c *gin.Context) {
 		}
 	}
 
+	// Check if any planilla already exists for the periods being imported
+	periodos := map[string]bool{}
+	for _, pl := range data.Planillas {
+		key := fmt.Sprintf("%d-%d", pl.Mes, pl.Anio)
+		if !periodos[key] {
+			periodos[key] = true
+			var count int64
+			db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", pl.Mes, pl.Anio).Count(&count)
+			if count > 0 {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Este mes y año ya fue importado antes: %d/%d", pl.Mes, pl.Anio)})
+				return
+			}
+		}
+	}
+
 	personalCreados, planillasCreadas, warnings := importarData(db, data)
 	c.JSON(http.StatusOK, gin.H{
 		"message":           "Importación completada",
@@ -824,6 +870,21 @@ func ImportarJSON(c *gin.Context) {
 	if err := c.ShouldBindJSON(&data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "JSON inválido: " + err.Error()})
 		return
+	}
+
+	// Check if any planilla already exists for the periods being imported
+	periodos := map[string]bool{}
+	for _, pl := range data.Planillas {
+		key := fmt.Sprintf("%d-%d", pl.Mes, pl.Anio)
+		if !periodos[key] {
+			periodos[key] = true
+			var count int64
+			db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", pl.Mes, pl.Anio).Count(&count)
+			if count > 0 {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Este mes y año ya fue importado antes: %d/%d", pl.Mes, pl.Anio)})
+				return
+			}
+		}
 	}
 
 	personalCreados, planillasCreadas, warnings := importarData(db, &data)
@@ -867,36 +928,65 @@ func ImportarHaberes(c *gin.Context) {
 	duplicados := []string{}
 	var warnings []string
 
+	tx := db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Check if any planilla already exists for this period
+	var count int64
+	tx.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", mes, anio).Count(&count)
+	if count > 0 {
+		tx.Rollback()
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Este mes y año ya fue importado antes: %d/%d", mes, anio)})
+		return
+	}
+
 	for _, emp := range payload.Empleados {
 		var personal models.Personal
 		found := false
 
 		// ESTRATEGIA DE IDENTIFICACIÓN:
-		// 1. Primero buscar por DNI exacto
+		// 1. Buscar por DNI exacto + verificar que el nombre coincida
 		// 2. Si no tiene DNI o no se encuentra, buscar por nombre
-		// 3. Si hay múltiples por nombre, marcar como duplicado
+		// 3. Si hay múltiples por nombre, crear nuevo registro
 
 		if emp.DNI != nil && *emp.DNI != "" {
-			// Buscar por DNI exacto
-			if err := db.Where("dni = ?", *emp.DNI).First(&personal).Error; err == nil {
-				found = true
-				fmt.Printf("[DEBUG] Encontrado por DNI: %s (ID=%d)\n", *emp.DNI, personal.ID)
+			var match models.Personal
+			if err := tx.Where("dni = ?", *emp.DNI).First(&match).Error; err == nil {
+				dbName := match.Apellidos + " " + match.Nombres
+				empName := emp.Nombre
+				norm := func(s string) string {
+					fields := strings.Fields(strings.ToLower(s))
+					return strings.Join(fields, " ")
+				}
+				if norm(dbName) == norm(empName) {
+					personal = match
+					found = true
+				} else {
+					duplicados = append(duplicados, fmt.Sprintf("DNI %s ya existe con nombre diferente (BD: '%s', Excel: '%s')", *emp.DNI, dbName, empName))
+				}
 			}
 		}
 
 		if !found && emp.Nombre != "" {
-			// Buscar por nombres (case insensitive)
 			var results []models.Personal
-			db.Where("LOWER(nombres) = LOWER(?)", emp.Nombre).Find(&results)
+			parts := strings.Fields(strings.ToLower(emp.Nombre))
+			if len(parts) >= 2 {
+				medio := len(parts) / 2
+				apellidos := strings.Join(parts[:medio], " ")
+				nombres := strings.Join(parts[medio:], " ")
+				tx.Where("LOWER(apellidos) = LOWER(?) AND LOWER(nombres) = LOWER(?)", apellidos, nombres).Find(&results)
+			} else {
+				tx.Where("LOWER(apellidos) = LOWER(?) OR LOWER(nombres) = LOWER(?)", emp.Nombre, emp.Nombre).Find(&results)
+			}
 
 			if len(results) == 1 {
 				personal = results[0]
 				found = true
-				fmt.Printf("[DEBUG] Encontrado por nombre: %s (ID=%d)\n", emp.Nombre, personal.ID)
 			} else if len(results) > 1 {
-				// Múltiples coincidencias - marcar duplicado
-				duplicados = append(duplicados, fmt.Sprintf("'%s' - múltiples coincidencias en BD", emp.Nombre))
-				fmt.Printf("[DEBUG] DUPLICADO: %s tiene %d coincidencias\n", emp.Nombre, len(results))
 			}
 		}
 
@@ -906,12 +996,10 @@ func ImportarHaberes(c *gin.Context) {
 				continue
 			}
 
-			// Crear nuevo empleado
 			parts := splitName(emp.Nombre)
 			personal = models.Personal{
 				Nombres:   parts.nombres,
 				Apellidos: parts.apellidos,
-				Activo:    true,
 				CreatedAt: time.Now(),
 			}
 			if emp.DNI != nil {
@@ -926,15 +1014,19 @@ func ImportarHaberes(c *gin.Context) {
 			if emp.Codigo != nil {
 				personal.UU = *emp.Codigo
 			}
-			if err := db.Create(&personal).Error; err != nil {
-				fmt.Printf("[DEBUG] Error creating personal '%s': %v\n", emp.Nombre, err)
-				warnings = append(warnings, fmt.Sprintf("No se pudo crear '%s': %v", emp.Nombre, err))
-				continue
+			if emp.Institucion != nil {
+				personal.Institucion = *emp.Institucion
 			}
-			fmt.Printf("[DEBUG] Created new personal ID=%d for '%s'\n", personal.ID, emp.Nombre)
+			if emp.Distrito != nil {
+				personal.Distrito = *emp.Distrito
+			}
+			if err := tx.Create(&personal).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error al crear personal '%s': %v", emp.Nombre, err)})
+				return
+			}
 			personalCreados++
 		} else {
-			// Actualizar datos existentes si vienen nuevos
 			updates := map[string]interface{}{}
 			if emp.DNI != nil && *emp.DNI != "" && personal.DNI == "" {
 				updates["dni"] = *emp.DNI
@@ -948,74 +1040,67 @@ func ImportarHaberes(c *gin.Context) {
 			if emp.Codigo != nil && *emp.Codigo != "" && personal.UU == "" {
 				updates["uu"] = *emp.Codigo
 			}
+			if emp.Institucion != nil && *emp.Institucion != "" && personal.Institucion == "" {
+				updates["institucion"] = *emp.Institucion
+			}
+			if emp.Distrito != nil && *emp.Distrito != "" && personal.Distrito == "" {
+				updates["distrito"] = *emp.Distrito
+			}
 			if len(updates) > 0 {
-				db.Model(&personal).Updates(updates)
+				tx.Model(&personal).Updates(updates)
 				personalActualizados++
 			}
 		}
 
-		// Find or create planilla for this period
 		var planilla models.Planilla
-		err := db.Where("personal_id = ? AND mes = ? AND anio = ?", personal.ID, mes, anio).First(&planilla).Error
+		err := tx.Where("personal_id = ? AND mes = ? AND anio = ?", personal.ID, mes, anio).First(&planilla).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
-			warnings = append(warnings, fmt.Sprintf("Error al buscar planilla para '%s': %v", emp.Nombre, err))
-			continue
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error al buscar planilla para '%s': %v", emp.Nombre, err)})
+			return
 		}
 
 		if planilla.ID == 0 {
-			inst := ""
-			if emp.Institucion != nil {
-				inst = *emp.Institucion
-			}
-			dist := ""
-			if emp.Distrito != nil {
-				dist = *emp.Distrito
-			}
 			planilla = models.Planilla{
-				PersonalID:  personal.ID,
-				Mes:         int16(mes),
-				Anio:        int16(anio),
-				Institucion: inst,
-				Distrito:    dist,
-				CreadoEn:    time.Now(),
+				PersonalID: personal.ID,
+				Mes:        int16(mes),
+				Anio:       int16(anio),
+				CreadoEn:   time.Now(),
 			}
-			if err := db.Create(&planilla).Error; err != nil {
-				fmt.Printf("[DEBUG] Error creating planilla for personal_id=%d: %v\n", personal.ID, err)
-				warnings = append(warnings, fmt.Sprintf("Error al crear planilla para '%s': %v", emp.Nombre, err))
-				continue
+			if err := tx.Create(&planilla).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error al crear planilla para '%s': %v", emp.Nombre, err)})
+				return
 			}
-			fmt.Printf("[DEBUG] Created planilla ID=%d for personal_id=%d\n", planilla.ID, personal.ID)
 			planillasCreadas++
-		}
 
-		if planilla.ID == 0 {
-			warnings = append(warnings, fmt.Sprintf("Planilla sin ID válido para '%s', omitiendo ingresos/descuentos", emp.Nombre))
-			continue
-		}
-
-		// Insert haberes (ingresos)
-		for _, h := range emp.Haberes {
-			if err := db.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: h.Concepto, Monto: h.Monto}).Error; err != nil {
-				warnings = append(warnings, fmt.Sprintf("Error al insertar ingreso '%s' para '%s': %v", h.Concepto, emp.Nombre, err))
+			for _, h := range emp.Haberes {
+				if err := tx.Create(&models.Ingreso{PlanillaID: planilla.ID, Tipo: h.Concepto, Monto: h.Monto}).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error al insertar ingreso '%s' para '%s': %v", h.Concepto, emp.Nombre, err)})
+					return
+				}
+			}
+			for _, d := range emp.Descuentos {
+				if err := tx.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: d.Concepto, Monto: d.Monto}).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error al insertar descuento '%s' para '%s': %v", d.Concepto, emp.Nombre, err)})
+					return
+				}
 			}
 		}
-		// Insert descuentos
-		for _, d := range emp.Descuentos {
-			if err := db.Create(&models.Descuento{PlanillaID: planilla.ID, Tipo: d.Concepto, Monto: d.Monto}).Error; err != nil {
-				warnings = append(warnings, fmt.Sprintf("Error al insertar descuento '%s' para '%s': %v", d.Concepto, emp.Nombre, err))
-			}
-		}
-		// Totals are maintained by DB triggers automatically
 	}
 
+	tx.Commit()
+
 	c.JSON(http.StatusOK, gin.H{
-		"message":             "Importación completada",
-		"personal_creados":    personalCreados,
-		"personal_actualizados": personalActualizados,
-		"planillas_creadas":   planillasCreadas,
-		"total_empleados":     len(payload.Empleados),
-		"duplicados":          duplicados,
-		"errores":             warnings,
+		"message":                "Importación completada",
+		"personal_creados":       personalCreados,
+		"personal_actualizados":  personalActualizados,
+		"planillas_creadas":      planillasCreadas,
+		"total_empleados":        len(payload.Empleados),
+		"duplicados":             duplicados,
+		"errores":                warnings,
 	})
 }
 
@@ -1082,23 +1167,41 @@ func splitAndClean(s string) []string {
 func ResumenDashboard(c *gin.Context) {
 	db := getDB(c)
 
+	mesStr := c.Query("mes")
+	anioStr := c.Query("anio")
+
 	var totalPersonal int64
-	db.Model(&models.Personal{}).Where("activo = ?", true).Count(&totalPersonal)
-
 	var totalPlanillas int64
-	db.Model(&models.Planilla{}).Count(&totalPlanillas)
-
 	var totalHaberes float64
-	db.Model(&models.Planilla{}).Select("COALESCE(SUM(total_haberes), 0)").Scan(&totalHaberes)
-
 	var totalDescuentos float64
-	db.Model(&models.Planilla{}).Select("COALESCE(SUM(total_descuentos), 0)").Scan(&totalDescuentos)
-
-	mesActual := int(time.Now().Month())
-	anioActual := int(time.Now().Year())
-
 	var planillasMes []models.Planilla
-	db.Where("mes = ? AND anio = ?", mesActual, anioActual).Preload("Personal").Find(&planillasMes)
+
+	if mesStr != "" && anioStr != "" {
+		mes, err := strconv.Atoi(mesStr)
+		if err != nil || mes < 1 || mes > 12 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Mes inválido"})
+			return
+		}
+		anio, err := strconv.Atoi(anioStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Año inválido"})
+			return
+		}
+
+		db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", mes, anio).Select("COUNT(DISTINCT personal_id)").Scan(&totalPersonal)
+		db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", mes, anio).Count(&totalPlanillas)
+		db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", mes, anio).Select("COALESCE(SUM(total_haberes), 0)").Scan(&totalHaberes)
+		db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", mes, anio).Select("COALESCE(SUM(total_descuentos), 0)").Scan(&totalDescuentos)
+
+		db.Where("mes = ? AND anio = ?", mes, anio).Preload("Personal").Find(&planillasMes)
+	} else {
+		db.Model(&models.Planilla{}).Select("COUNT(DISTINCT personal_id)").Scan(&totalPersonal)
+		db.Model(&models.Planilla{}).Count(&totalPlanillas)
+		db.Model(&models.Planilla{}).Select("COALESCE(SUM(total_haberes), 0)").Scan(&totalHaberes)
+		db.Model(&models.Planilla{}).Select("COALESCE(SUM(total_descuentos), 0)").Scan(&totalDescuentos)
+
+		db.Preload("Personal").Find(&planillasMes)
+	}
 
 	for i := range planillasMes {
 		planillasMes[i].CalculateTotal()
@@ -1163,6 +1266,152 @@ func ObtenerPeriodosPersonal(c *gin.Context) {
 	})
 }
 
+// ListarPeriodosImportados retorna los períodos (mes + año) que tienen planillas registradas
+func ListarPeriodosImportados(c *gin.Context) {
+	db := getDB(c)
+
+	type Periodo struct {
+		Anio int16 `json:"anio"`
+		Mes  int16 `json:"mes"`
+	}
+
+	var periodos []Periodo
+	db.Model(&models.Planilla{}).
+		Select("DISTINCT anio, mes").
+		Order("anio DESC, mes DESC").
+		Scan(&periodos)
+
+	// Agrupar por año
+	añosMap := make(map[int16][]int16)
+	for _, p := range periodos {
+		añosMap[p.Anio] = append(añosMap[p.Anio], p.Mes)
+	}
+
+	var años []int16
+	for a := range añosMap {
+		años = append(años, a)
+	}
+	for i := 0; i < len(años)-1; i++ {
+		for j := i + 1; j < len(años); j++ {
+			if años[j] > años[i] {
+				años[i], años[j] = años[j], años[i]
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"periodos": periodos,
+		"años":     años,
+		"meses":    añosMap,
+		"total":    len(periodos),
+	})
+}
+
+// LimpiarImportacion elimina todas las planillas, ingresos y descuentos de un período (mes/año)
+func LimpiarImportacion(c *gin.Context) {
+	db := getDB(c)
+
+	mes := c.Query("mes")
+	anio := c.Query("anio")
+
+	if mes == "" || anio == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Se requieren los parámetros mes y anio"})
+		return
+	}
+
+	mesInt, err := strconv.Atoi(mes)
+	if err != nil || mesInt < 1 || mesInt > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Mes inválido (1-12)"})
+		return
+	}
+
+	anioInt, err := strconv.Atoi(anio)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Año inválido"})
+		return
+	}
+
+	var count int64
+	db.Model(&models.Planilla{}).Where("mes = ? AND anio = ?", mesInt, anioInt).Count(&count)
+
+	if count == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("No hay planillas para %d/%d", mesInt, anioInt)})
+		return
+	}
+
+	// Use transaction to ensure consistency
+	tx := db.Begin()
+
+	if err := tx.Exec("DELETE FROM ingresos WHERE planilla_id IN (SELECT id FROM planilla WHERE mes = ? AND anio = ?)", mesInt, anioInt).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al limpiar ingresos"})
+		return
+	}
+
+	if err := tx.Exec("DELETE FROM descuentos WHERE planilla_id IN (SELECT id FROM planilla WHERE mes = ? AND anio = ?)", mesInt, anioInt).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al limpiar descuentos"})
+		return
+	}
+
+	if err := tx.Where("mes = ? AND anio = ?", mesInt, anioInt).Delete(&models.Planilla{}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al limpiar planillas"})
+		return
+	}
+
+	// Eliminar personal huérfano (sin ninguna planilla)
+	if err := tx.Exec("DELETE FROM personal WHERE id NOT IN (SELECT DISTINCT personal_id FROM planilla)").Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al limpiar personal huérfano"})
+		return
+	}
+
+	tx.Commit()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":              fmt.Sprintf("Importación limpiada para periodo %d/%d", mesInt, anioInt),
+		"planillas_eliminadas": count,
+	})
+}
+
+// LimpiarTodoPersonal elimina TODOS los registros (personal, planillas, ingresos, descuentos)
+func LimpiarTodoPersonal(c *gin.Context) {
+	db := getDB(c)
+
+	tx := db.Begin()
+
+	if err := tx.Exec("DELETE FROM descuentos").Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al limpiar descuentos"})
+		return
+	}
+
+	if err := tx.Exec("DELETE FROM ingresos").Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al limpiar ingresos"})
+		return
+	}
+
+	if err := tx.Exec("DELETE FROM planilla").Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al limpiar planillas"})
+		return
+	}
+
+	if err := tx.Exec("DELETE FROM personal").Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al limpiar personal"})
+		return
+	}
+
+	tx.Commit()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Todos los datos han sido eliminados correctamente",
+	})
+}
+
 // ExportarPlanillasPersonal exporta las planillas de un empleado específico
 func ExportarPlanillasPersonal(c *gin.Context) {
 	db := getDB(c)
@@ -1188,7 +1437,7 @@ func ExportarPlanillasPersonal(c *gin.Context) {
 	}
 	if anio != "" {
 		anioInt, _ := strconv.Atoi(anio)
-		if anioInt > 2000 {
+		if anioInt >= 1900 {
 			baseQuery = baseQuery.Where("anio = ?", anioInt)
 		}
 	}
@@ -1209,13 +1458,15 @@ func ExportarPlanillasPersonal(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"personal": gin.H{
-			"id":        personal.ID,
-			"dni":       personal.DNI,
-			"nombres":   personal.Nombres,
-			"apellidos": personal.Apellidos,
-			"puesto":    personal.Puesto,
-			"rd":        personal.RD,
-			"uu":        personal.UU,
+			"id":          personal.ID,
+			"dni":         personal.DNI,
+			"nombres":     personal.Nombres,
+			"apellidos":   personal.Apellidos,
+			"puesto":      personal.Puesto,
+			"rd":          personal.RD,
+			"uu":          personal.UU,
+			"institucion": personal.Institucion,
+			"distrito":    personal.Distrito,
 		},
 		"planillas":        planillas,
 		"total_haberes":   totalHaberes,
