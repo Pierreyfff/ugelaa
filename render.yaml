@@ -3,13 +3,13 @@ services:
     name: planillas-backend
     env: docker
     repo: https://github.com/Pierreyfff/ugelaa
-    branch: main
+    branch: final-v1
     dockerfilePath: ./backend/Dockerfile
     envVars:
       - key: DATABASE_URL
         sync: false
       - key: CORS_ORIGINS
-        value: https://planillas-frontend.vercel.app,http://localhost:5173
+        value: https://ugelaa.vercel.app,http://localhost:5173
       - key: PORT
         value: "8080"
     healthCheckPath: /health
@@ -18,11 +18,11 @@ services:
     name: planillas-python
     env: docker
     repo: https://github.com/Pierreyfff/ugelaa
-    branch: main
+    branch: final-v1
     dockerfilePath: ./python-excel/Dockerfile
     envVars:
       - key: BACKEND_URL
-        value: https://planillas-backend.onrender.com
+        value: https://ugelaa.onrender.com
       - key: PORT
         value: "8081"
     healthCheckPath: /health
