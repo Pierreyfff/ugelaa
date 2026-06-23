@@ -7,7 +7,7 @@ __pycache__/
 # Go
 backend/bin/
 backend/tmp/
-backend/go.sum
+
 
 # Build outputs
 frontend/dist/
