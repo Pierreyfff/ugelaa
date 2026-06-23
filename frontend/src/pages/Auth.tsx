@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../App'
-import { AlertCircle, Eye, EyeOff, Loader2, CheckCircle, ChevronRight, Lock, Mail, User, Sparkles, Shield, Zap, FileSpreadsheet } from 'lucide-react'
+import { AlertCircle, Eye, EyeOff, Loader2, CheckCircle, ChevronRight, Lock, Mail, Shield, Zap, FileSpreadsheet } from 'lucide-react'
 import api from '../services/api'
 
 export default function Auth() {
@@ -47,11 +47,6 @@ export default function Auth() {
     } finally { setIsLoading(false) }
   }
 
-  const handleDemoLogin = () => {
-    setFormData({ email: 'admin@planillas.su', password: 'admin123' })
-    setError('')
-  }
-
   if (step === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
@@ -94,18 +89,10 @@ export default function Auth() {
         
         <div className="relative z-10 flex flex-col justify-center p-16 w-full max-w-2xl mx-auto">
           <div className="mb-12">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center shadow-2xl">
-                <FileSpreadsheet className="w-8 h-8 text-white" />
-              </div>
-              <div>
-                <h1 className="text-5xl font-bold text-white tracking-tight">Planillas<span className="text-red-500">SU</span></h1>
-                <p className="text-xl text-gray-400 font-light">Sistema de Gestión de Nómina</p>
-              </div>
+            <div className="flex flex-col items-center text-center mb-8">
+              <img src="/logo.svg" alt="Planillas SU" className="w-72 h-auto mb-6 opacity-90" />
+              <h1 className="text-4xl font-bold text-white tracking-tight">Sistema de Gestión de Planillas</h1>
             </div>
-            <p className="text-gray-400 text-lg leading-relaxed max-w-lg">
-              Administra tu personal, planillas y pagos de manera eficiente y segura
-            </p>
           </div>
 
           <div className="space-y-5">
@@ -125,17 +112,6 @@ export default function Auth() {
               </div>
             ))}
           </div>
-
-          <div className="mt-12 flex items-center gap-6">
-            <div className="flex -space-x-3">
-              {[1,2,3].map(i => (
-                <div key={i} className={`w-10 h-10 rounded-full border-2 border-gray-900 bg-gradient-to-br ${i===1?'from-red-500 to-red-600':i===2?'from-gray-500 to-gray-600':'from-gray-400 to-gray-500'} flex items-center justify-center`}>
-                  <span className="text-white text-xs font-bold">{['A','B','C'][i-1]}</span>
-                </div>
-              ))}
-            </div>
-            <p className="text-gray-500 text-sm">Únete a +150 usuarios que confían en PlanillasSU</p>
-          </div>
         </div>
       </div>
 
@@ -145,8 +121,7 @@ export default function Auth() {
             <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center shadow-xl mx-auto mb-4">
               <FileSpreadsheet className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold text-gray-900">Planillas<span className="text-red-600">SU</span></h1>
-            <p className="text-gray-500 mt-2">Sistema de Gestión de Nómina</p>
+            <h1 className="text-3xl font-bold text-gray-900">Sistema de Gestión de Planillas</h1>
           </div>
 
           <div className="text-center mb-10">
@@ -166,13 +141,13 @@ export default function Auth() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2.5 ml-1">Correo electrónico</label>
-              <div className="relative">
-                <div className={`absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl flex items-center justify-center transition-all ${focusedField === 'email' ? 'bg-red-600 shadow-lg' : 'bg-gray-100'}`}>
+              <div className={`flex items-center gap-3 w-full px-4 py-4 bg-white border-2 ${fieldErrors.email ? 'border-red-300 bg-red-50' : focusedField === 'email' ? 'border-red-400 shadow-lg' : 'border-gray-200 bg-gray-50'} rounded-2xl transition-all`}>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all ${focusedField === 'email' ? 'bg-red-600 shadow-lg' : 'bg-gray-100'}`}>
                   <Mail className={`w-5 h-5 transition-colors ${focusedField === 'email' ? 'text-white' : 'text-gray-400'}`} />
                 </div>
                 <input
                   type="email"
-                  className={`w-full pl-16 pr-5 py-4 bg-white border-2 ${fieldErrors.email ? 'border-red-300 bg-red-50' : focusedField === 'email' ? 'border-red-400 bg-white shadow-lg' : 'border-gray-200 bg-gray-50'} rounded-2xl text-gray-800 placeholder-gray-400 focus:outline-none transition-all text-base`}
+                  className="flex-1 bg-transparent border-none outline-none text-gray-800 placeholder-gray-400 text-base focus:ring-0 p-0 min-w-0"
                   placeholder="correo@ejemplo.com"
                   value={formData.email}
                   onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setFieldErrors({ ...fieldErrors, email: undefined }); setError('') }}
@@ -185,20 +160,20 @@ export default function Auth() {
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2.5 ml-1">Contraseña</label>
-              <div className="relative">
-                <div className={`absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl flex items-center justify-center transition-all ${focusedField === 'password' ? 'bg-red-600 shadow-lg' : 'bg-gray-100'}`}>
+              <div className={`flex items-center gap-3 w-full px-4 py-4 bg-white border-2 ${fieldErrors.password ? 'border-red-300 bg-red-50' : focusedField === 'password' ? 'border-red-400 shadow-lg' : 'border-gray-200 bg-gray-50'} rounded-2xl transition-all`}>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all ${focusedField === 'password' ? 'bg-red-600 shadow-lg' : 'bg-gray-100'}`}>
                   <Lock className={`w-5 h-5 transition-colors ${focusedField === 'password' ? 'text-white' : 'text-gray-400'}`} />
                 </div>
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  className={`w-full pl-16 pr-16 py-4 bg-white border-2 ${fieldErrors.password ? 'border-red-300 bg-red-50' : focusedField === 'password' ? 'border-red-400 bg-white shadow-lg' : 'border-gray-200 bg-gray-50'} rounded-2xl text-gray-800 placeholder-gray-400 focus:outline-none transition-all text-base`}
+                  className="flex-1 bg-transparent border-none outline-none text-gray-800 placeholder-gray-400 text-base focus:ring-0 p-0 min-w-0"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) => { setFormData({ ...formData, password: e.target.value }); setFieldErrors({ ...fieldErrors, password: undefined }); setError('') }}
                   onFocus={() => setFocusedField('password')}
                   onBlur={() => setFocusedField(null)}
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-600 transition-colors p-1.5 hover:bg-red-50 rounded-lg">
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="text-gray-400 hover:text-red-600 transition-colors p-1.5 hover:bg-red-50 rounded-lg shrink-0">
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
@@ -208,26 +183,20 @@ export default function Auth() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-4.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-2xl shadow-xl shadow-red-600/25 hover:shadow-red-600/40 transition-all duration-300 flex items-center justify-center gap-3 text-base disabled:opacity-60 disabled:cursor-not-allowed group"
+              className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-2xl shadow-xl shadow-red-600/25 hover:shadow-red-600/40 transition-all duration-300 flex items-center justify-center gap-3 text-base disabled:opacity-60 disabled:cursor-not-allowed group"
             >
               {isLoading ? <><Loader2 className="w-5 h-5 animate-spin" /><span>Verificando...</span></> : <><span>Iniciar Sesión</span><ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" /></>}
             </button>
           </form>
 
           <div className="mt-8 p-6 bg-gray-100 rounded-2xl border border-gray-200">
-            <p className="text-sm text-gray-500 font-medium text-center mb-4">¿No tienes acceso? Contacta al administrador</p>
-            <button onClick={handleDemoLogin} className="w-full py-3.5 bg-white border-2 border-gray-200 hover:border-red-400 hover:bg-red-50 text-gray-700 font-semibold rounded-xl transition-all duration-300 text-sm flex items-center justify-center gap-2 group hover:shadow-lg">
-              <User className="w-4 h-4 group-hover:scale-110 transition-transform" />
-              <span>Usar credenciales de prueba</span>
-              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-red-500 group-hover:translate-x-1 transition-all" />
-            </button>
+            <p className="text-sm text-gray-500 font-medium text-center">
+              ¿Problemas de acceso? Contacta al administrador del sistema
+            </p>
           </div>
 
           <div className="mt-8 pt-6 border-t border-gray-200">
-            <div className="flex items-center justify-center gap-2 text-gray-400">
-              <Sparkles className="w-4 h-4" />
-              <p className="text-center text-sm">© {new Date().getFullYear()} Planillas SU — Todos los derechos reservados</p>
-            </div>
+            <p className="text-center text-sm text-gray-400">© {new Date().getFullYear()} Planillas SU — Todos los derechos reservados</p>
           </div>
         </div>
       </div>

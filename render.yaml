@@ -7,9 +7,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: planillas-db
-          property: connectionString
+        sync: false
       - key: CORS_ORIGINS
         value: https://planillas-frontend.vercel.app,http://localhost:5173
       - key: PORT
@@ -28,12 +26,3 @@ services:
       - key: PORT
         value: "8081"
     healthCheckPath: /health
-
-databases:
-  - name: planillas-db
-    databaseName: planillas
-    plan: free
-    postgresMajorVersion: 16
-    ipAllowList:
-      - source: 0.0.0.0/0
-        description: everywhere

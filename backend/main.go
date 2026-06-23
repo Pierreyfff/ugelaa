@@ -49,15 +49,31 @@ func crearUsuarioAdmin() {
 	var count int64
 	db.Model(&models.Usuario{}).Count(&count)
 	if count == 0 {
-		hash, _ := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+		hashAdmin, _ := bcrypt.GenerateFromPassword([]byte("Admin2026*"), bcrypt.DefaultCost)
 		admin := models.Usuario{
-			Nombre:       "Administrador",
-			Email:        "admin@planillas.su",
-			PasswordHash: string(hash),
-			CreatedAt:   time.Now(),
+			Nombre:          "Administrador",
+			Email:           "admin@planillas.su",
+			PasswordHash:    string(hashAdmin),
+			Rol:             "admin",
+			PasswordChanged: true,
+			CreatedAt:       time.Now(),
 		}
 		db.Create(&admin)
-		log.Println("Usuario admin creado: admin@planillas.su / admin123")
+
+		hashAyudante, _ := bcrypt.GenerateFromPassword([]byte("Asistente2026*"), bcrypt.DefaultCost)
+		ayudante := models.Usuario{
+			Nombre:          "Asistente",
+			Email:           "asistente@planillas.su",
+			PasswordHash:    string(hashAyudante),
+			Rol:             "ayudante",
+			PasswordChanged: true,
+			CreatedAt:       time.Now(),
+		}
+		db.Create(&ayudante)
+
+		log.Println("Usuarios creados:")
+		log.Println("  admin: admin@planillas.su")
+		log.Println("  ayudante: asistente@planillas.su")
 	}
 }
 
@@ -87,6 +103,7 @@ func main() {
 		c.Set("db", db)
 		c.Next()
 	})
+	r.Use(handlers.SecurityHeaders())
 
 	r.Static("/uploads", "./uploads")
 
@@ -96,65 +113,70 @@ func main() {
 
 	api := r.Group("/api")
 	{
-		usuarios := api.Group("/usuarios")
-		{
-			usuarios.POST("/login", handlers.Login)
-			usuarios.POST("/registro", handlers.RegistrarUsuario)
-		}
+		api.POST("/usuarios/login", handlers.Login)
+		api.POST("/importar/haberes", handlers.ImportarHaberes)
+		api.GET("/personal/:id/exportar", handlers.ExportarPlanillasPersonal)
 
-		personal := api.Group("/personal")
+		protected := api.Group("")
+		protected.Use(handlers.AuthMiddleware())
 		{
-			personal.GET("", handlers.ListarPersonal)
-			personal.GET("/buscar", handlers.BuscarPersonal)
-			personal.GET("/instituciones", handlers.BuscarInstituciones)
-			personal.GET("/distritos", handlers.BuscarDistritos)
-			personal.GET("/:id", handlers.ObtenerPersonal)
-			personal.POST("", handlers.CrearPersonal)
-			personal.PUT("/:id", handlers.ActualizarPersonal)
-			personal.DELETE("/:id", handlers.EliminarPersonal)
-			personal.GET("/:id/periodos", handlers.ObtenerPeriodosPersonal)
-			personal.GET("/:id/exportar", handlers.ExportarPlanillasPersonal)
-		}
+			usuarios := protected.Group("/usuarios")
+			{
+				usuarios.PUT("/cambiar-password", handlers.CambiarPassword)
+			}
 
-		planillas := api.Group("/planillas")
-		{
-			planillas.GET("", handlers.ListarPlanillas)
-			planillas.GET("/:id", handlers.ObtenerPlanilla)
-			planillas.POST("", handlers.CrearPlanilla)
-			planillas.PUT("/:id", handlers.ActualizarPlanilla)
-			planillas.DELETE("/:id", handlers.EliminarPlanilla)
-			planillas.GET("/:id/ingresos", handlers.ListarIngresos)
-			planillas.GET("/:id/descuentos", handlers.ListarDescuentos)
-			planillas.PUT("/:id/editar", handlers.EditarPlanillaCompleta)
-		}
+			personal := protected.Group("/personal")
+			{
+				personal.GET("", handlers.ListarPersonal)
+				personal.GET("/buscar", handlers.BuscarPersonal)
+				personal.GET("/instituciones", handlers.BuscarInstituciones)
+				personal.GET("/distritos", handlers.BuscarDistritos)
+				personal.GET("/:id", handlers.ObtenerPersonal)
+				personal.POST("", handlers.CrearPersonal)
+				personal.PUT("/:id", handlers.ActualizarPersonal)
+				personal.DELETE("/:id", handlers.EliminarPersonal)
+				personal.GET("/:id/periodos", handlers.ObtenerPeriodosPersonal)
+			}
 
-		ingresos := api.Group("/ingresos")
-		{
-			ingresos.POST("", handlers.CrearIngreso)
-			ingresos.PUT("/:id", handlers.ActualizarIngreso)
-			ingresos.DELETE("/:id", handlers.EliminarIngreso)
-		}
+			planillas := protected.Group("/planillas")
+			{
+				planillas.GET("", handlers.ListarPlanillas)
+				planillas.GET("/:id", handlers.ObtenerPlanilla)
+				planillas.POST("", handlers.CrearPlanilla)
+				planillas.PUT("/:id", handlers.ActualizarPlanilla)
+				planillas.DELETE("/:id", handlers.EliminarPlanilla)
+				planillas.GET("/:id/ingresos", handlers.ListarIngresos)
+				planillas.GET("/:id/descuentos", handlers.ListarDescuentos)
+				planillas.PUT("/:id/editar", handlers.EditarPlanillaCompleta)
+			}
 
-		descuentos := api.Group("/descuentos")
-		{
-			descuentos.POST("", handlers.CrearDescuento)
-			descuentos.PUT("/:id", handlers.ActualizarDescuento)
-			descuentos.DELETE("/:id", handlers.EliminarDescuento)
-		}
+			ingresos := protected.Group("/ingresos")
+			{
+				ingresos.POST("", handlers.CrearIngreso)
+				ingresos.PUT("/:id", handlers.ActualizarIngreso)
+				ingresos.DELETE("/:id", handlers.EliminarIngreso)
+			}
 
-		importar := api.Group("/importar")
-		{
-			importar.POST("/excel", handlers.ImportarExcel)
-			importar.POST("/json", handlers.ImportarJSON)
-			importar.POST("/haberes", handlers.ImportarHaberes)
-			importar.DELETE("/limpiar", handlers.LimpiarImportacion)
-			importar.DELETE("/limpiar-todo", handlers.LimpiarTodoPersonal)
-			importar.GET("/periodos", handlers.ListarPeriodosImportados)
-		}
+			descuentos := protected.Group("/descuentos")
+			{
+				descuentos.POST("", handlers.CrearDescuento)
+				descuentos.PUT("/:id", handlers.ActualizarDescuento)
+				descuentos.DELETE("/:id", handlers.EliminarDescuento)
+			}
 
-		dashboard := api.Group("/dashboard")
-		{
-			dashboard.GET("/resumen", handlers.ResumenDashboard)
+			importar := protected.Group("/importar")
+			{
+				importar.POST("/excel", handlers.ImportarExcel)
+				importar.POST("/json", handlers.ImportarJSON)
+				importar.DELETE("/limpiar", handlers.LimpiarImportacion)
+				importar.DELETE("/limpiar-todo", handlers.LimpiarTodoPersonal)
+				importar.GET("/periodos", handlers.ListarPeriodosImportados)
+			}
+
+			dashboard := protected.Group("/dashboard")
+			{
+				dashboard.GET("/resumen", handlers.ResumenDashboard)
+			}
 		}
 	}
 

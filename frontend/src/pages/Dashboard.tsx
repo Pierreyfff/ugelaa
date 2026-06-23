@@ -26,6 +26,7 @@ export default function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [data, setData] = useState<Resumen | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [importResult, setImportResult] = useState<any>(null)
 
   useEffect(() => {
@@ -46,23 +47,37 @@ export default function Dashboard() {
 
   const setFiltroMes = (v: number | '') => {
     const next = new URLSearchParams(searchParams)
-    if (v === '') { next.delete('mes') } else { next.set('mes', String(v)) }
-    if (!next.has('anio')) { next.delete('mes') }
+    if (v === '') {
+      next.delete('mes')
+      next.delete('anio')
+    } else {
+      next.set('mes', String(v))
+      if (!next.has('anio')) next.set('anio', String(new Date().getFullYear()))
+    }
     setSearchParams(next, { replace: true })
   }
 
   const setFiltroAnio = (v: number | '') => {
     const next = new URLSearchParams(searchParams)
-    if (v === '') { next.delete('anio') } else { next.set('anio', String(v)) }
-    if (!next.has('mes')) { next.delete('anio') }
+    if (v === '') {
+      next.delete('anio')
+      next.delete('mes')
+    } else {
+      next.set('anio', String(v))
+      if (!next.has('mes')) next.set('mes', '1')
+    }
     setSearchParams(next, { replace: true })
   }
 
   const loadData = () => {
     setLoading(true)
+    setError('')
     dashboardApi.getResumen(filtroMes || undefined, filtroAnio || undefined)
       .then((res: { data: Resumen }) => setData(res.data))
-      .catch(console.error)
+      .catch((err: any) => {
+        setError(err.response?.data?.error || 'Error al cargar datos del dashboard')
+        setData(null)
+      })
       .finally(() => setLoading(false))
   }
 
@@ -116,6 +131,13 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
+      {error && (
+        <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+          <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3 mb-2">
@@ -228,7 +250,7 @@ export default function Dashboard() {
                 </div>
                 <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 text-center">
                   <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{importResult.duplicados}</p>
-                  <p className="text-xs text-amber-600 dark:text-amber-400">Duplicados</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">Descartados</p>
                 </div>
                 <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center">
                   <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">
@@ -240,7 +262,7 @@ export default function Dashboard() {
               {importResult.duplicados > 0 && (
                 <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-400">
                   <AlertTriangle className="w-4 h-4 inline mr-1" />
-                  Se encontraron {importResult.duplicados} empleados duplicados. Revisa la sección de importación para más detalles.
+                  Se descartaron {importResult.duplicados} registros por tener DNI y nombre duplicado.
                 </div>
               )}
             </div>

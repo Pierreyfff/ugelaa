@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Users, FileSpreadsheet, Upload, Download, Menu, LogOut, ChevronDown, Loader2 } from 'lucide-react'
+import { LayoutDashboard, Users, FileSpreadsheet, Upload, Download, Menu, LogOut, ChevronDown, Loader2, Settings } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { useAuth, useTask } from '../App'
 
@@ -8,6 +8,7 @@ const navItems = [
   { to: '/planillas', icon: Users, label: 'Planillas', desc: 'Personal docente' },
   { to: '/importar', icon: Upload, label: 'Importar', desc: 'Importar datos' },
   { to: '/exportar', icon: Download, label: 'Exportar', desc: 'Exportar planillas' },
+  { to: '/configuracion', icon: Settings, label: 'Configuración', desc: 'Ajustes del sistema' },
 ]
 
 export default function Layout() {
@@ -43,6 +44,7 @@ export default function Layout() {
   const currentUser = JSON.parse(localStorage.getItem('user_data') || '{}')
   const userName = currentUser.nombre || 'Administrador'
   const userEmail = currentUser.email || 'admin@planillas.su'
+  const userRole = currentUser.rol === 'admin' ? 'Administrador' : 'Asistente'
   const userInitials = userName.split(' ').map((n: string) => n.charAt(0)).join('').substring(0, 2).toUpperCase()
 
   const handleLogout = () => {
@@ -66,8 +68,7 @@ export default function Layout() {
                   <FileSpreadsheet className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">Planillas SU</h1>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Gestión de Nómina</p>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">Sistema de Gestión de Planillas</h1>
                 </div>
               </div>
             </div>
@@ -145,7 +146,7 @@ export default function Layout() {
                 </div>
                 <div className="text-left hidden md:block">
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">{userName}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Administrador</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{userRole}</p>
                 </div>
                 <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
               </button>

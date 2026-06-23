@@ -502,11 +502,17 @@ def process_excel():
         analisis = analizar_duplicados(empleados)
         monto_total = calcular_monto_total(empleados)
 
+        # Pre-filter: remove exact duplicates (same DNI+name) before sending to Go
+        # The Go backend would skip them anyway, but removing them upfront
+        # ensures the response counts are accurate and no unexpected skips occur.
+        exactos_indices_set = set(analisis["exactos_indices"])
+        empleados_filtrados = [e for i, e in enumerate(empleados) if i not in exactos_indices_set]
+
         payload = {
             "mes": mes,
             "anio": anio,
-            "total_empleados": len(empleados),
-            "empleados": empleados,
+            "total_empleados": len(empleados_filtrados),
+            "empleados": empleados_filtrados,
         }
 
         response = requests.post(
@@ -521,13 +527,13 @@ def process_excel():
                 "message": "Excel procesado correctamente",
                 "personal_creados": resp_data.get("personal_creados", 0),
                 "planillas_creadas": resp_data.get("planillas_creadas", 0),
-                "personal": len(empleados),
-                "planillas": len(empleados),
+                "personal": len(empleados),                    # Total original del Excel
+                "planillas": len(empleados_filtrados),         # Total enviado a Go (sin exactos)
+                "exactos": analisis["exactos"],                # Cuantos se descartaron
                 "errores": resp_data.get("errores", []),
                 "personal_actualizados": resp_data.get("personal_actualizados", 0),
                 "dnis_duplicados": analisis["dnis_duplicados"],
                 "nombres_duplicados": analisis["nombres_duplicados"],
-                "exactos": analisis["exactos"],
                 "exactos_indices": analisis["exactos_indices"],
                 "monto_total": monto_total,
                 "duplicados": resp_data.get("duplicados", []),
@@ -583,6 +589,199 @@ def validate_excel():
             os.remove(filepath)
 
 
+MESES_ABR = ["", "ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SET", "OCT", "NOV", "DIC"]
+MESES_NOMBRE = ["", "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SETIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
+
+# Keywords that indicate a concept is a descuento, not a haber
+_DESC_KEYWORDS = [
+    "AFP", "ONP", "ESSALUD", "SNP", "COMISION", "SEGURO", "SALUD",
+    "PRESTAMO", "PRÉSTAMO", "DESCUENTO", "DSCTO", "DESCTO",
+    "RETENCION", "RETENCIÓN", "JUDICIAL", "SINDICATO",
+    "MULTA", "CAF", "APORTE", "CUOTA", "FONAVI", "IMPUESTO",
+    "RENTA", "QUINTA", "ADELANTO",
+]
+
+
+def _es_descuento(nombre: str) -> bool:
+    """Return True if the concept name matches known descuento patterns."""
+    upper = nombre.upper().replace(" ", "").replace("Á", "A").replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U")
+    for kw in _DESC_KEYWORDS:
+        if kw in upper:
+            return True
+    return False
+
+
+from copy import copy
+
+def _set_cell(ws, row, col, value):
+    """Write safely: if target belongs to a merged range but is NOT the top‑left
+    cell, unmerge the range first preserving formatting from the top‑left cell."""
+    for mr in list(ws.merged_cells.ranges):
+        if mr.min_row <= row <= mr.max_row and mr.min_col <= col <= mr.max_col:
+            if row != mr.min_row or col != mr.min_col:
+                src = ws.cell(mr.min_row, mr.min_col)
+                ws.unmerge_cells(
+                    start_row=mr.min_row, start_column=mr.min_col,
+                    end_row=mr.max_row, end_column=mr.max_col
+                )
+                fmt = dict(
+                    border=copy(src.border),
+                    font=copy(src.font),
+                    alignment=copy(src.alignment),
+                    number_format=copy(src.number_format),
+                    fill=copy(src.fill),
+                )
+                for r in range(mr.min_row, mr.max_row + 1):
+                    for c in range(mr.min_col, mr.max_col + 1):
+                        cell = ws.cell(r, c)
+                        for attr, val in fmt.items():
+                            setattr(cell, attr, val)
+            break
+    ws.cell(row=row, column=col, value=value)
+
+
+def _unmerge_data_zone(ws):
+    """Unmerge ALL merged cells in the data area (rows 9–40)."""
+    for mr in list(ws.merged_cells.ranges):
+        if 9 <= mr.min_row <= 40 or 9 <= mr.max_row <= 40:
+            ws.unmerge_cells(
+                start_row=mr.min_row, start_column=mr.min_col,
+                end_row=mr.max_row, end_column=mr.max_col
+            )
+
+
+def _escribir_planilla_anual(ws, year, planillas_year, personal, logo_path):
+    """Write one year's worth of data into a worksheet using the fixed template layout.
+
+    Template layout (rows):
+      9:  month abbreviations (D–O)
+     10:  "HABERES" (col A) + month abbreviations cont.
+     11–24: haberes concepts (max 14)
+     25:  TOTAL HABERES  (per‑month in cols D–O)
+     26:  empty
+     27–34: descuentos concepts (max 8)
+     35:  TOTAL DESCUENTOS (per‑month)
+     36:  TOTAL LIQUIDO   (per‑month)
+    Columns D=4=ENE … O=15=DIC
+    """
+    # ── Insert logo A1:C4 ────────────────────────────────────────────────
+    ws["A1"].value = None
+    if logo_path:
+        try:
+            from openpyxl.drawing.image import Image as XlImage
+            img = XlImage(logo_path)
+            img.width = 200
+            img.height = 65
+            ws.add_image(img, "A1")
+        except Exception as ex:
+            import sys
+            print(f"[WARN] Logo load failed: {ex}", file=sys.stderr, flush=True)
+
+    # ── Employee info (rows 5–8) ──────────────────────────────────────────
+    _set_cell(ws, 5, 3,
+              f"{personal.get('apellidos', '')}, {personal.get('nombres', '')}".strip(", "))
+    _set_cell(ws, 7, 3, personal.get("dni", ""))
+    _set_cell(ws, 5, 11, str(personal.get("institucion", "")))
+    _set_cell(ws, 6, 11, str(personal.get("puesto", "")))
+    _set_cell(ws, 7, 11, str(personal.get("rd", "")))
+    _set_cell(ws, 8, 11, str(personal.get("uu", "")))
+
+    # ── Period ────────────────────────────────────────────────────────────
+    meses_con_datos = sorted(set(p["mes"] for p in planillas_year))
+    if len(meses_con_datos) == 1:
+        periodo_str = f"{MESES_NOMBRE[meses_con_datos[0]]} {year}"
+    else:
+        periodo_str = str(year)
+    _set_cell(ws, 6, 3, periodo_str)
+
+    # ── Month headers (row 9, col D–O) ────────────────────────────────────
+    _set_cell(ws, 9, 1, "DESCRIPCION")
+    for m in range(1, 13):
+        _set_cell(ws, 9, 3 + m, MESES_ABR[m])
+
+    # ── Section labels (row 10) ───────────────────────────────────────────
+    _set_cell(ws, 10, 1, "HABERES")
+
+    # ── Collect & classify concepts for this year ─────────────────────────
+    haberes_data = {}   # concept_name -> {month: amount}
+    descuentos_data = {}
+
+    for p in planillas_year:
+        try:
+            mes = int(p["mes"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        # Ingress from DB → could be either haberes or descuentos depending
+        # on how the original Excel was parsed. Re‑classify by concept name.
+        for ing in p.get("ingresos", []):
+            t = str(ing.get("tipo", "")).strip()
+            if not t:
+                continue
+            try:
+                monto = float(ing.get("monto", 0) or 0)
+            except (TypeError, ValueError):
+                monto = 0.0
+            if _es_descuento(t):
+                inner = descuentos_data.setdefault(t, {})
+                inner[mes] = inner.get(mes, 0) + monto
+            else:
+                inner = haberes_data.setdefault(t, {})
+                inner[mes] = inner.get(mes, 0) + monto
+
+        # Descuentos from DB → always descuentos
+        for desc in p.get("descuentos", []):
+            t = str(desc.get("tipo", "")).strip()
+            if not t:
+                continue
+            try:
+                monto = float(desc.get("monto", 0) or 0)
+            except (TypeError, ValueError):
+                monto = 0.0
+            inner = descuentos_data.setdefault(t, {})
+            inner[mes] = inner.get(mes, 0) + monto
+
+    # ── Write HABERES (rows 11–24, max 14) ────────────────────────────────
+    haberes_sorted = sorted(haberes_data.keys())[:14]
+    rh = 11
+    for concepto in haberes_sorted:
+        _set_cell(ws, rh, 1, str(concepto))
+        for m in range(1, 13):
+            _set_cell(ws, rh, 3 + m, haberes_data.get(concepto, {}).get(m, 0))
+        rh += 1
+
+    # ── TOTAL HABERES (row 25) ───────────────────────────────────────────
+    _set_cell(ws, 25, 1, "TOTAL HABERES")
+    for m in range(1, 13):
+        total = sum(haberes_data.get(c, {}).get(m, 0) for c in haberes_sorted)
+        _set_cell(ws, 25, 3 + m, round(total, 2))
+
+    # row 26 intentionally left empty
+
+    # ── Write DESCUENTOS (rows 26–34) ────────────────────────────────────
+    # Row 26 = section header (template already has it)
+    _set_cell(ws, 26, 1, "DESCUENTOS")
+    # Rows 27–34 = concept rows (max 8)
+    desc_sorted = sorted(descuentos_data.keys())[:8]
+    for i, concepto in enumerate(desc_sorted):
+        row = 27 + i
+        _set_cell(ws, row, 1, str(concepto))
+        for m in range(1, 13):
+            _set_cell(ws, row, 3 + m, descuentos_data.get(concepto, {}).get(m, 0))
+
+    # ── TOTAL DESCUENTOS (row 35) ────────────────────────────────────────
+    _set_cell(ws, 35, 1, "TOTAL DESCUENTOS")
+    for m in range(1, 13):
+        total = sum(descuentos_data.get(c, {}).get(m, 0) for c in desc_sorted)
+        _set_cell(ws, 35, 3 + m, round(total, 2))
+
+    # ── TOTAL LIQUIDO (row 36) ───────────────────────────────────────────
+    _set_cell(ws, 36, 1, "TOTAL LIQUIDO")
+    for m in range(1, 13):
+        th = sum(haberes_data.get(c, {}).get(m, 0) for c in haberes_sorted)
+        td = sum(descuentos_data.get(c, {}).get(m, 0) for c in desc_sorted)
+        _set_cell(ws, 36, 3 + m, round(th - td, 2))
+
+
 @app.route("/export-excel", methods=["POST"])
 def export_excel():
     data = request.get_json()
@@ -593,14 +792,11 @@ def export_excel():
     if not personal_id:
         return jsonify({"error": "Se requiere personal_id"}), 400
 
-    mes = data.get("mes")
-    anio = data.get("anio")
-
     params = {}
-    if mes:
-        params["mes"] = str(mes)
-    if anio:
-        params["anio"] = str(anio)
+    if data.get("mes"):
+        params["mes"] = str(data["mes"])
+    if data.get("anio"):
+        params["anio"] = str(data["anio"])
 
     try:
         resp = requests.get(
@@ -622,79 +818,42 @@ def export_excel():
     personal = d.get("personal", {})
     planillas = d.get("planillas", [])
 
+    # ── Locate template and logo ──────────────────────────────────────────
+    base_dir = os.path.dirname(__file__)
     template_path = os.path.join(app.config["UPLOAD_FOLDER"], "plantilla_nueva.xlsx")
     if not os.path.exists(template_path):
-        template_path = os.path.join(os.path.dirname(__file__), "plantilla_nueva.xlsx")
+        template_path = os.path.join(base_dir, "plantilla_nueva.xlsx")
     if not os.path.exists(template_path):
         return jsonify({"error": "Plantilla no encontrada en el servidor"}), 500
 
+    logo_path = os.path.join(base_dir, "logo_minedu-.png")
+    if not os.path.exists(logo_path):
+        logo_path = None
+
+    if not planillas:
+        return jsonify({"error": "El empleado no tiene planillas registradas"}), 404
+
+    # ── Group by year & sort ──────────────────────────────────────────────
+    years = sorted(set(p["anio"] for p in planillas))
+
     try:
+        from openpyxl import load_workbook
         wb = load_workbook(template_path)
-    except Exception as e:
-        return jsonify({"error": f"Error al cargar plantilla: {str(e)}"}), 500
 
-    try:
-        ws = wb.active
+        # Create one sheet per year
+        template_ws = wb.active
+        template_ws.title = str(years[0])
+        year_sheets = {years[0]: template_ws}
 
-        ws["C5"] = f"{personal.get('apellidos', '')}, {personal.get('nombres', '')}".strip(", ")
-        ws["C6"] = f"{mes}/{anio}" if mes and anio else ""
-        ws["C7"] = personal.get("dni", "")
-        ws["K5"] = ""
-        ws["K6"] = personal.get("puesto", "")
-        ws["K7"] = personal.get("rd", "")
-        ws["K8"] = personal.get("uu", "")
+        for yr in years[1:]:
+            ws_copy = wb.copy_worksheet(template_ws)
+            ws_copy.title = str(yr)
+            year_sheets[yr] = ws_copy
 
-        if planillas:
-            haberes_conceptos = {}
-            descuentos_conceptos = {}
-            for p in planillas:
-                m, a = p["mes"], p["anio"]
-                key = f"{a}-{m}"
-                for ing in p.get("ingresos", []):
-                    t = ing.get("tipo", "").strip()
-                    if t:
-                        if t not in haberes_conceptos:
-                            haberes_conceptos[t] = {}
-                        haberes_conceptos[t][key] = ing.get("monto", 0)
-                for desc in p.get("descuentos", []):
-                    t = desc.get("tipo", "").strip()
-                    if t:
-                        if t not in descuentos_conceptos:
-                            descuentos_conceptos[t] = {}
-                        descuentos_conceptos[t][key] = desc.get("monto", 0)
-
-            def mes_a_columna(m):
-                return 3 + m
-
-            haberes_ordenados = sorted(haberes_conceptos.keys())
-            for i, concepto in enumerate(haberes_ordenados[:14]):
-                row = 11 + i
-                ws.cell(row=row, column=1, value=concepto)
-                for key, monto in haberes_conceptos[concepto].items():
-                    _, m = key.split("-")
-                    col = mes_a_columna(int(m))
-                    ws.cell(row=row, column=col, value=monto)
-
-            for p in planillas:
-                col = mes_a_columna(p["mes"])
-                ws.cell(row=25, column=col, value=p.get("total_haberes", 0))
-
-            desc_ordenados = sorted(descuentos_conceptos.keys())
-            for i, concepto in enumerate(desc_ordenados[:8]):
-                row = 27 + i
-                ws.cell(row=row, column=1, value=concepto)
-                for key, monto in descuentos_conceptos[concepto].items():
-                    _, m = key.split("-")
-                    col = mes_a_columna(int(m))
-                    ws.cell(row=row, column=col, value=monto)
-
-            for p in planillas:
-                col = mes_a_columna(p["mes"])
-                ws.cell(row=35, column=col, value=p.get("total_descuentos", 0))
-
-            for p in planillas:
-                col = mes_a_columna(p["mes"])
-                ws.cell(row=36, column=col, value=p.get("total_liquido", 0))
+        # Write each year's data
+        for yr, ws in year_sheets.items():
+            year_planillas = [p for p in planillas if p["anio"] == yr]
+            _escribir_planilla_anual(ws, yr, year_planillas, personal, logo_path)
 
         buf = io.BytesIO()
         wb.save(buf)
@@ -711,7 +870,10 @@ def export_excel():
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     except Exception as e:
-        return jsonify({"error": f"Error al generar el Excel: {str(e)}"}), 500
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[EXPORT ERROR] {tb}", flush=True)
+        return jsonify({"error": f"Error al generar el Excel: {repr(e)}\n{tb}"}), 500
 
 
 if __name__ == "__main__":

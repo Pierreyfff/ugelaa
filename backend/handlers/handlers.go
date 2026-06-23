@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"planillas-backend/models"
@@ -15,11 +18,56 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	loginAttempts = make(map[string]int)
+	loginMu       sync.Mutex
+)
+
+func generateToken() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func checkRateLimit(ip string) bool {
+	loginMu.Lock()
+	defer loginMu.Unlock()
+	attempts := loginAttempts[ip]
+	if attempts >= 5 {
+		return false
+	}
+	loginAttempts[ip] = attempts + 1
+	return true
+}
+
+func resetRateLimit(ip string) {
+	loginMu.Lock()
+	defer loginMu.Unlock()
+	delete(loginAttempts, ip)
+}
+
+func SecurityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		c.Next()
+	}
+}
+
 func getDB(c *gin.Context) *gorm.DB {
 	return c.MustGet("db").(*gorm.DB)
 }
 
 func Login(c *gin.Context) {
+	ip := c.ClientIP()
+	if !checkRateLimit(ip) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Demasiados intentos. Espera un momento antes de intentar de nuevo."})
+		return
+	}
+
 	db := getDB(c)
 	var input struct {
 		Email    string `json:"email" binding:"required"`
@@ -42,42 +90,87 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	token := fmt.Sprintf("token_%d_%d", usuario.ID, time.Now().Unix())
+	resetRateLimit(ip)
+
+	token := generateToken()
+	db.Model(&usuario).Update("token", token)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Login exitoso",
 		"token":   token,
 		"user": gin.H{
-			"id":     usuario.ID,
-			"nombre": usuario.Nombre,
-			"email":  usuario.Email,
+			"id":               usuario.ID,
+			"nombre":           usuario.Nombre,
+			"email":            usuario.Email,
+			"rol":              usuario.Rol,
+			"password_changed": usuario.PasswordChanged,
 		},
 	})
 }
 
-func RegistrarUsuario(c *gin.Context) {
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token requerido"})
+			return
+		}
+		if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Formato de token inválido"})
+			return
+		}
+		token := authHeader[7:]
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token vacío"})
+			return
+		}
+		db := getDB(c)
+
+		var usuario models.Usuario
+		if err := db.Where("token = ?", token).First(&usuario).Error; err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Sesión inválida o expirada"})
+			return
+		}
+
+		c.Set("usuario", usuario)
+		c.Set("user_id", usuario.ID)
+		c.Set("user_rol", usuario.Rol)
+		c.Next()
+	}
+}
+
+func CambiarPassword(c *gin.Context) {
 	db := getDB(c)
-	var input models.Usuario
+	usuario, _ := c.Get("usuario")
+	user := usuario.(models.Usuario)
+
+	var input struct {
+		PasswordActual string `json:"password_actual" binding:"required"`
+		NuevaPassword  string `json:"nueva_password" binding:"required,min=6"`
+	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Datos inválidos"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Datos inválidos. La contraseña debe tener al menos 6 caracteres"})
 		return
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(input.PasswordHash), bcrypt.DefaultCost)
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.PasswordActual)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "La contraseña actual no es correcta"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.NuevaPassword), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al encriptar password"})
-		return
-	}
-	input.PasswordHash = string(hash)
-	input.CreatedAt = time.Now()
-
-	if err := db.Create(&input).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al crear usuario"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al procesar la nueva contraseña"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Usuario creado", "user": input})
+	db.Model(&user).Updates(map[string]interface{}{
+		"password_hash":    string(hash),
+		"password_changed": true,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Contraseña actualizada correctamente"})
 }
 
 func ListarPersonal(c *gin.Context) {
@@ -950,10 +1043,12 @@ func ImportarHaberes(c *gin.Context) {
 
 		// ESTRATEGIA DE IDENTIFICACIÓN:
 		// 1. Buscar por DNI exacto + verificar que el nombre coincida
-		// 2. Si no tiene DNI o no se encuentra, buscar por nombre
-		// 3. Si hay múltiples por nombre, crear nuevo registro
+		// 2. Si no tiene DNI, buscar por nombre
+		// 3. Si no se encuentra en ningún caso, crear nuevo registro
 
-		if emp.DNI != nil && *emp.DNI != "" {
+		empHasDni := emp.DNI != nil && *emp.DNI != ""
+
+		if empHasDni {
 			var match models.Personal
 			if err := tx.Where("dni = ?", *emp.DNI).First(&match).Error; err == nil {
 				dbName := match.Apellidos + " " + match.Nombres
@@ -971,7 +1066,9 @@ func ImportarHaberes(c *gin.Context) {
 			}
 		}
 
-		if !found && emp.Nombre != "" {
+		// Sólo buscar por nombre cuando el empleado NO tiene DNI
+		// (El DNI es el identificador principal; si hay DNI no se debe reusar por nombre)
+		if !found && !empHasDni && emp.Nombre != "" {
 			var results []models.Personal
 			parts := strings.Fields(strings.ToLower(emp.Nombre))
 			if len(parts) >= 2 {
@@ -986,7 +1083,6 @@ func ImportarHaberes(c *gin.Context) {
 			if len(results) == 1 {
 				personal = results[0]
 				found = true
-			} else if len(results) > 1 {
 			}
 		}
 

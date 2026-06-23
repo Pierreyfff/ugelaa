@@ -124,23 +124,25 @@ export default function Exportar() {
             </div>
 
             <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10">
-                {searching ? <div className="w-5 h-5 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /> : <Search className="w-5 h-5 text-gray-400" />}
+              <div className={`flex items-center gap-3 w-full px-4 py-4 bg-gray-50 dark:bg-gray-700 border-2 ${selectedPerson ? 'border-red-400 bg-red-50 dark:bg-red-900/20' : 'border-gray-200 dark:border-gray-600'} rounded-xl transition-all`}>
+                <div className="shrink-0">
+                  {searching ? <div className="w-5 h-5 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /> : <Search className="w-5 h-5 text-gray-400" />}
+                </div>
+                <input
+                  type="text"
+                  className="flex-1 bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder:text-gray-400 text-base focus:ring-0 p-0 min-w-0"
+                  placeholder="Buscar empleados por nombre o DNI..."
+                  value={searchInput}
+                  onChange={e => { handleSearchChange(e.target.value); setShowSearchResults(true); if (!e.target.value) setSelectedPerson(null) }}
+                  onFocus={() => setShowSearchResults(true)}
+                  disabled={!!selectedPerson}
+                />
+                {selectedPerson && (
+                  <button onClick={clearSelection} className="text-red-500 hover:text-red-700 p-1.5 shrink-0">
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
               </div>
-              <input
-                type="text"
-                className={`w-full pl-12 pr-12 py-4 bg-gray-50 dark:bg-gray-700 border-2 ${selectedPerson ? 'border-red-400 bg-red-50 dark:bg-red-900/20' : 'border-gray-200 dark:border-gray-600'} rounded-xl focus:outline-none focus:border-red-500 transition-all text-gray-900 dark:text-white placeholder:text-gray-400 text-base`}
-                placeholder="Buscar empleados por nombre o DNI..."
-                value={searchInput}
-                onChange={e => { handleSearchChange(e.target.value); setShowSearchResults(true); if (!e.target.value) setSelectedPerson(null) }}
-                onFocus={() => setShowSearchResults(true)}
-                disabled={!!selectedPerson}
-              />
-              {selectedPerson && (
-                <button onClick={clearSelection} className="absolute right-4 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-700 p-1.5">
-                  <X className="w-5 h-5" />
-                </button>
-              )}
               {showSearchResults && searchResults.length > 0 && (
                 <div className="absolute z-20 w-full mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl max-h-72 overflow-y-auto">
                   {searchResults.map((p) => (

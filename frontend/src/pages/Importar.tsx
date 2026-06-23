@@ -1,6 +1,6 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Upload, FileSpreadsheet, AlertCircle, FileType, ArrowRight, HelpCircle, AlertTriangle, Calendar, Pencil, Trash2, ChevronDown, Loader2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, HelpCircle, AlertTriangle, Calendar, Pencil, Trash2, ChevronDown, Loader2 } from 'lucide-react'
 import { importarApi, PYTHON_URL } from '../services/api'
 import { useTask } from '../App'
 
@@ -125,19 +125,20 @@ export default function Importar() {
       formData.append('edits', JSON.stringify(editsArray))
 
       const response = await fetch(`${PYTHON_URL}/process-excel`, { method: 'POST', body: formData })
+      const text = await response.text()
       if (response.ok) {
+        const result = JSON.parse(text)
         sessionStorage.setItem('ultima_importacion', JSON.stringify({
           mes,
           anio,
-          total: validacion?.total_empleados || 0,
-          duplicados: validacion?.dnis_duplicados?.length || 0,
-          monto: validacion?.monto_total || 0,
+          total: result.personal || 0,
+          duplicados: result.exactos || 0,
+          monto: result.monto_total || 0,
           timestamp: Date.now()
         }))
         navigate(`/?mes=${mes}&anio=${anio}`)
         return
       }
-      const text = await response.text()
       try {
         const data = JSON.parse(text)
         setError(data.error || `Error del servidor`)
@@ -203,6 +204,23 @@ export default function Importar() {
   }
 
   const mesNombre = MESES.find(m => m.v === mes)?.l ?? ''
+
+  const totalEncontrados = validacion?.total_empleados || 0
+  const exactosBase = validacion?.exactos || 0
+  const exactosIndices: number[] = validacion?.exactos_indices || []
+  const dnisCount = validacion?.dnis_duplicados?.length || 0
+  const nombresCount = validacion?.nombres_duplicados?.length || 0
+  let resolved = 0
+  Object.entries(editDuplicados).forEach(([key, val]) => {
+    const empIdx = parseInt(key.replace('idx_', ''))
+    if (!exactosIndices.includes(empIdx)) return
+    const grupo = (validacion?.dnis_duplicados || []).find((d: any) =>
+      d.empleados?.some((e: any) => e.idx === empIdx)
+    )
+    if (grupo && val.dni !== grupo.dni) resolved++
+  })
+  const exactosFinal = Math.max(exactosBase - resolved, 0)
+  const aImportar = totalEncontrados - exactosFinal
 
   return (
     <div className="space-y-6">
@@ -308,52 +326,34 @@ export default function Importar() {
                 <div>
                   <h3 className="text-lg font-bold text-amber-700 dark:text-amber-400">Vista Previa - Resumen de Datos</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {validacion.dnis_duplicados?.length > 0
-                      ? `Se encontraron registros duplicados. Edita los DNI/nombre para resolverlos.`
+                    {dnisCount > 0 || nombresCount > 0
+                      ? `Se detectaron ${totalEncontrados} empleados, de los cuales ${exactosFinal} tienen DNI y nombre repetido y serán descartados. Quedan ${aImportar} por importar.`
                       : 'No se encontraron duplicados. Los datos están listos para importar.'}
                   </p>
                 </div>
               </div>
               
-              {(() => {
-                const total = validacion.total_empleados || 0
-                const exactosBase = validacion.exactos || 0
-                const exactosIndices: number[] = validacion.exactos_indices || []
-                let resolved = 0
-                Object.entries(editDuplicados).forEach(([key, val]) => {
-                  const empIdx = parseInt(key.replace('idx_', ''))
-                  if (!exactosIndices.includes(empIdx)) return
-                  const grupo = (validacion.dnis_duplicados || []).find((d: any) =>
-                    d.empleados?.some((e: any) => e.idx === empIdx)
-                  )
-                  if (grupo && val.dni !== grupo.dni) resolved++
-                })
-                const exactosFinal = Math.max(exactosBase - resolved, 0)
-                const aImportar = total - exactosFinal
-                return (
-                  <div className="grid grid-cols-4 gap-3 mb-4">
-                    <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-3 text-center">
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">{total}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Encontrados</p>
-                    </div>
-                    <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-center">
-                      <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{exactosFinal}</p>
-                      <p className="text-xs leading-tight text-amber-600 dark:text-amber-400">
-                        Duplicados exactos
-                        <span className="block text-[10px] opacity-80">(mismo DNI+nombre, se descartan)</span>
-                      </p>
-                    </div>
-                    <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-center">
-                      <p className="text-2xl font-bold text-green-700 dark:text-green-400">{aImportar}</p>
-                      <p className="text-xs text-green-600 dark:text-green-400">A importar</p>
-                    </div>
-                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center">
-                      <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">S/ {Number(validacion.monto_total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
-                      <p className="text-xs text-blue-600 dark:text-blue-400">Monto Total</p>
-                    </div>
-                  </div>
-                )
-              })()}
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalEncontrados}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Encontrados</p>
+                </div>
+                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{exactosFinal}</p>
+                  <p className="text-xs leading-tight text-amber-600 dark:text-amber-400">
+                    Duplicados exactos
+                    <span className="block text-[10px] opacity-80">(mismo DNI+nombre, se descartan)</span>
+                  </p>
+                </div>
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-green-700 dark:text-green-400">{aImportar}</p>
+                  <p className="text-xs text-green-600 dark:text-green-400">A importar</p>
+                </div>
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">S/ {Number(validacion.monto_total || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400">Monto Total</p>
+                </div>
+              </div>
 
               {(Object.keys(editDuplicados).length > 0) && (
                 <div className="mb-4">
@@ -425,21 +425,7 @@ export default function Importar() {
                     )}
                     {uploading
                       ? 'Importando...'
-                      : `Importar ${(() => {
-                          const total = validacion.total_empleados || 0
-                          const exactosBase = validacion.exactos || 0
-                          const exactosIndices: number[] = validacion.exactos_indices || []
-                          let resolved = 0
-                          Object.entries(editDuplicados).forEach(([key, val]) => {
-                            const empIdx = parseInt(key.replace('idx_', ''))
-                            if (!exactosIndices.includes(empIdx)) return
-                            const grupo = (validacion.dnis_duplicados || []).find((d: any) =>
-                              d.empleados?.some((e: any) => e.idx === empIdx)
-                            )
-                            if (grupo && val.dni !== grupo.dni) resolved++
-                          })
-                          return total - Math.max(exactosBase - resolved, 0)
-                        })()} registros`}
+                      : `Importar ${aImportar} registros`}
                   </button>
                 </div>
               )}
@@ -664,16 +650,6 @@ export default function Importar() {
                 </div>
               ))}
             </div>
-          </div>
-
-          <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl p-5 text-white">
-            <h3 className="font-bold text-white mb-2">¿Necesitas ayuda?</h3>
-            <p className="text-sm text-white/80 mb-4">Descarga nuestra plantilla de ejemplo para facilitar la importación</p>
-            <button className="w-full bg-white/20 hover:bg-white/30 text-white font-medium py-3 rounded-xl transition-all text-sm flex items-center justify-center gap-2">
-              <FileType className="w-4 h-4" />
-              Descargar Plantilla
-              <ArrowRight className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </div>

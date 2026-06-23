@@ -10,6 +10,29 @@ const api = axios.create({
   },
 })
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('user_data')
+      localStorage.removeItem('isAuthenticated')
+      if (window.location.pathname !== '/auth') {
+        window.location.href = '/auth'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 export const personalApi = {
   list: (search?: string, page = 1, limit = 20, sortBy = 'apellidos', sortOrder = 'asc', mes?: number | string, anio?: number | string, institucion?: string, distrito?: string, rd?: string, uu?: string) => 
     api.get('/api/personal', { params: { search, page, limit, sort_by: sortBy, sort_order: sortOrder, mes, anio, institucion, distrito, rd, uu } }),
@@ -65,6 +88,11 @@ export const importarApi = {
   limpiarTodo: () =>
     api.delete('/api/importar/limpiar-todo'),
   periodos: () => api.get('/api/importar/periodos'),
+}
+
+export const usuariosApi = {
+  cambiarPassword: (passwordActual: string, nuevaPassword: string) =>
+    api.put('/api/usuarios/cambiar-password', { password_actual: passwordActual, nueva_password: nuevaPassword }),
 }
 
 export default api

@@ -8,7 +8,8 @@
 </p>
 
 Sistema web completo para la gestión de planillas de personal, permisos, ingresos y descuentos.
-
+- admin@planillas.su / Admin2026* (rol: admin)
+- asistente@planillas.su / Asistente2026* (rol: ayudante)
 ---
 
 ## Tabla de Contenidos
