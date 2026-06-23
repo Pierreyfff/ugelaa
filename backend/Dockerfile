@@ -1,11 +1,14 @@
-FROM golang:latest-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /app
 
-COPY . .
-RUN go mod download && CGO_ENABLED=0 GOOS=linux go build -o server .
+COPY go.mod go.sum ./
+RUN go mod download
 
-FROM alpine:latest
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o server .
+
+FROM alpine
 
 RUN apk --no-cache add ca-certificates
 
