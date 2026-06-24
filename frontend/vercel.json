@@ -4,7 +4,7 @@
   "framework": "vite",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "https://ugelaa.onrender.com/api/$1" },
-    { "source": "/python/(.*)", "destination": "https://ugelaa.onrender.com/python/$1" },
+    { "source": "/python/(.*)", "destination": "https://ugelaa-python.onrender.com/$1" },
     { "source": "/uploads/(.*)", "destination": "https://ugelaa.onrender.com/uploads/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
