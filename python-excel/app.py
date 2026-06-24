@@ -1,3 +1,4 @@
+import gc
 import io
 import json
 import os
@@ -168,9 +169,11 @@ def _leer_filas(filepath: str) -> list:
             filas.append(tuple(row))
         return filas
     else:
-        wb = load_workbook(filepath, data_only=True)
+        wb = load_workbook(filepath, data_only=True, read_only=True)
         ws = wb.active
-        return list(ws.iter_rows(values_only=True))
+        filas = list(ws.iter_rows(values_only=True))
+        wb.close()
+        return filas
 
 
 def _es_no_inst_dist(texto: str) -> bool:
@@ -505,19 +508,26 @@ def process_excel():
                 if edit.get("nombre"):
                     empleados[idx]["nombre"] = edit["nombre"]
         
+        total_empleados = len(empleados)
         analisis = analizar_duplicados(empleados)
         monto_total = calcular_monto_total(empleados)
 
         # Pre-filter: remove exact duplicates (same DNI+name) before sending to Go
-        # The Go backend would skip them anyway, but removing them upfront
-        # ensures the response counts are accurate and no unexpected skips occur.
         exactos_indices_set = set(analisis["exactos_indices"])
         empleados_filtrados = [e for i, e in enumerate(empleados) if i not in exactos_indices_set]
+        planillas_count = len(empleados_filtrados)
+        dnis_dup = analisis["dnis_duplicados"]
+        nombres_dup = analisis["nombres_duplicados"]
+        exactos_count = analisis["exactos"]
+        exactos_indices = analisis["exactos_indices"]
+
+        del empleados, analisis
+        gc.collect()
 
         payload = {
             "mes": mes,
             "anio": anio,
-            "total_empleados": len(empleados_filtrados),
+            "total_empleados": planillas_count,
             "empleados": empleados_filtrados,
         }
 
@@ -527,20 +537,23 @@ def process_excel():
             timeout=300,
         )
 
+        del empleados_filtrados, payload
+        gc.collect()
+
         if response.status_code == 200:
             resp_data = response.json()
             return jsonify({
                 "message": "Excel procesado correctamente",
                 "personal_creados": resp_data.get("personal_creados", 0),
                 "planillas_creadas": resp_data.get("planillas_creadas", 0),
-                "personal": len(empleados),                    # Total original del Excel
-                "planillas": len(empleados_filtrados),         # Total enviado a Go (sin exactos)
-                "exactos": analisis["exactos"],                # Cuantos se descartaron
+                "personal": total_empleados,
+                "planillas": planillas_count,
+                "exactos": exactos_count,
                 "errores": resp_data.get("errores", []),
                 "personal_actualizados": resp_data.get("personal_actualizados", 0),
-                "dnis_duplicados": analisis["dnis_duplicados"],
-                "nombres_duplicados": analisis["nombres_duplicados"],
-                "exactos_indices": analisis["exactos_indices"],
+                "dnis_duplicados": dnis_dup,
+                "nombres_duplicados": nombres_dup,
+                "exactos_indices": exactos_indices,
                 "monto_total": monto_total,
                 "duplicados": resp_data.get("duplicados", []),
             })
@@ -575,13 +588,18 @@ def validate_excel():
 
     try:
         empleados = extraer_empleados(filepath)
+        total = len(empleados)
+        preview = empleados[:5]
         analisis = analizar_duplicados(empleados)
         monto_total = calcular_monto_total(empleados)
-        
+
+        del empleados
+        gc.collect()
+
         return jsonify({
             "valid": True,
-            "total_empleados": len(empleados),
-            "preview": empleados[:5],
+            "total_empleados": total,
+            "preview": preview,
             "dnis_duplicados": analisis["dnis_duplicados"],
             "nombres_duplicados": analisis["nombres_duplicados"],
             "exactos": analisis["exactos"],
