@@ -6,10 +6,16 @@ import time
 import requests
 import xlrd
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 from openpyxl import load_workbook
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+CORS(app, origins=[
+    "https://ugelaa.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+])
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8080")
 UPLOAD_FOLDER = "/app/uploads"
