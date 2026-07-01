@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { useState, createContext, useContext, useEffect, useCallback } from 'react'
+import { useState, createContext, useContext, useEffect, useCallback, useRef } from 'react'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Planillas from './pages/Planillas'
@@ -33,6 +33,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function useInactivityTimeout(minutes: number, onTimeout: () => void) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const reset = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(onTimeout, minutes * 60 * 1000)
+  }, [minutes, onTimeout])
+
+  useEffect(() => {
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'] as const
+    const handler = () => reset()
+    events.forEach(e => window.addEventListener(e, handler))
+    reset()
+    return () => {
+      events.forEach(e => window.removeEventListener(e, handler))
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [reset])
+}
+
 function AppContent() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return localStorage.getItem('isAuthenticated') === 'true'
@@ -44,6 +64,15 @@ function AppContent() {
       document.documentElement.classList.add('dark')
     }
   }, [])
+
+  useInactivityTimeout(30, () => {
+    if (isAuthenticated) {
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('user_data')
+      localStorage.removeItem('isAuthenticated')
+      setIsAuthenticated(false)
+    }
+  })
 
   const login = () => {
     setIsAuthenticated(true)
