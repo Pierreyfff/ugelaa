@@ -732,7 +732,7 @@ def _unmerge_data_zone(ws):
             )
 
 
-def _escribir_planilla_anual(ws, year, planillas_year, personal, logo_bytes=None):
+def _escribir_planilla_anual(ws, year, planillas_year, personal):
     """Write one year's worth of data into a worksheet using the fixed template layout.
 
     Template layout (rows):
@@ -746,18 +746,6 @@ def _escribir_planilla_anual(ws, year, planillas_year, personal, logo_bytes=None
      36:  TOTAL LIQUIDO   (per‑month)
     Columns D=4=ENE … O=15=DIC
     """
-    # ── Insert logo from template A1:C4 ────────────────────────────────
-    ws["A1"].value = None
-    if logo_bytes:
-        try:
-            from openpyxl.drawing.image import Image as XlImage
-            import io as _io
-            img = XlImage(_io.BytesIO(logo_bytes))
-            ws.add_image(img, "A1")
-        except Exception as ex:
-            import sys
-            print(f"[WARN] Logo insert failed: {ex}", file=sys.stderr, flush=True)
-
     # ── Employee info (rows 5–8) ──────────────────────────────────────────
     _set_cell(ws, 5, 3,
               f"{personal.get('apellidos', '')}, {personal.get('nombres', '')}".strip(", "))
@@ -907,18 +895,6 @@ def export_excel():
     if not os.path.exists(template_path):
         return jsonify({"error": "Plantilla no encontrada en el servidor"}), 500
 
-    # Extract embedded logo image from template (xl/media/image1.png)
-    logo_bytes = None
-    try:
-        import zipfile as _zf
-        with _zf.ZipFile(template_path) as _z:
-            for _name in _z.namelist():
-                if "image" in _name.lower() and _name.endswith(".png"):
-                    logo_bytes = _z.read(_name)
-                    break
-    except Exception:
-        pass
-
     if not planillas:
         return jsonify({"error": "El empleado no tiene planillas registradas"}), 404
 
@@ -942,11 +918,68 @@ def export_excel():
         # Write each year's data
         for yr, ws in year_sheets.items():
             year_planillas = [p for p in planillas if p["anio"] == yr]
-            _escribir_planilla_anual(ws, yr, year_planillas, personal, logo_bytes)
+            _escribir_planilla_anual(ws, yr, year_planillas, personal)
 
+        # Save to buffer with openpyxl
         buf = io.BytesIO()
         wb.save(buf)
+        wb.close()
         buf.seek(0)
+
+        # Post-process: restore rich data (logo image) stripped by openpyxl
+        # We merge the richData directory and related metadata from the original template
+        _rich_paths = {
+            "xl/richData/richValueRel.xml",
+            "xl/richData/rdrichvalue.xml",
+            "xl/richData/rdrichvaluestructure.xml",
+            "xl/richData/rdRichValueTypes.xml",
+            "xl/richData/_rels/richValueRel.xml.rels",
+            "xl/metadata.xml",
+        }
+        _orig_parts = {}
+        with _zf.ZipFile(template_path) as _z:
+            for _name in _rich_paths:
+                try:
+                    _orig_parts[_name] = _z.read(_name)
+                except KeyError:
+                    pass
+
+        _out = io.BytesIO()
+        with _zf.ZipFile(buf, "r") as _zin:
+            with _zf.ZipFile(_out, "w", _zf.ZIP_DEFLATED) as _zout:
+                for _item in _zin.infolist():
+                    _data = _zin.read(_item.filename)
+                    # Restore original metadata.xml (has rich value metadata)
+                    if _item.filename == "xl/metadata.xml":
+                        _orig = _orig_parts.get("xl/metadata.xml")
+                        if _orig is not None:
+                            _data = _orig
+                    # Patch [Content_Types].xml to include rich data
+                    if _item.filename == "[Content_Types].xml":
+                        _ct = _data.decode("utf-8")
+                        _rich_ct = (
+                            '<Override PartName="/xl/richData/richValueRel.xml" '
+                            'ContentType="application/vnd.ms-excel.richvaluerel+xml"/>'
+                            '<Override PartName="/xl/richData/rdrichvalue.xml" '
+                            'ContentType="application/vnd.ms-excel.rdrichvalue+xml"/>'
+                            '<Override PartName="/xl/richData/rdrichvaluestructure.xml" '
+                            'ContentType="application/vnd.ms-excel.rdrichvaluestructure+xml"/>'
+                            '<Override PartName="/xl/richData/rdRichValueTypes.xml" '
+                            'ContentType="application/vnd.ms-excel.rdrichvaluetypes+xml"/>'
+                        )
+                        for _rc in ["richValueRel.xml", "rdrichvalue.xml", "rdrichvaluestructure.xml", "rdRichValueTypes.xml"]:
+                            _p = f'/xl/richData/{_rc}'
+                            if _p not in _ct:
+                                _ct = _ct.replace("</Types>", f"{_rich_ct}</Types>")
+                                break
+                        _data = _ct.encode("utf-8")
+                    _zout.writestr(_item, _data)
+                # Add missing richData files
+                for _name, _data in _orig_parts.items():
+                    if _name not in set(i.filename for i in _zin.infolist()):
+                        _zout.writestr(_name, _data)
+        _out.seek(0)
+        buf = _out
 
         ape = personal.get("apellidos", "").replace(" ", "_")
         nom = personal.get("nombres", "").replace(" ", "_")
