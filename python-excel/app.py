@@ -23,22 +23,40 @@ UPLOAD_FOLDER = "/app/uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
+def _normalizar(texto: str) -> str:
+    """Normaliza texto: mayúsculas, sin tildes, Ñ→N, elimina duplicación de espacios."""
+    t = texto.strip().upper()
+    # Reemplazar caracteres acentuados y Ñ
+    t = t.replace('Ñ', 'N').replace('Á', 'A').replace('É', 'E').replace('Í', 'I').replace('Ó', 'O').replace('Ú', 'U')
+    # Eliminar caracteres no alfanuméricos excepto espacios, puntos, guiones
+    t = re.sub(r'[^\w\s\.\-]', ' ', t)
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
+
 DNI_PATTERN = re.compile(r"DNI\s*(\d+)", re.IGNORECASE)
 INST_KEYWORD = re.compile(r"INSTITUCION|INSTITUCIÓN", re.IGNORECASE)
 DIST_KEYWORD = re.compile(r"DISTRITO", re.IGNORECASE)
 IGNORAR_CONCEPTOS = {"REINTEGRO", "ESCOLARIDAD", "AGUINALDO", "DETALLE"}
 
 # Patrones para identificar institución educativa
-INST_PREFIX = re.compile(r'^(CE\b|CB\b|C\.E\.|E\.E\.|I\.E\.|IE\b|CEBA|CEBE|EE\s|EE\b|JARDIN|COLEGIO|ESCUELA|INSTITUCION|INSTITUTO)', re.IGNORECASE)
+INST_PREFIX = re.compile(r'^(CE\b|CB\b|C\.E\.|E\.E\.|I\.E\.|IE\b|CEBA|CEBE|EE\s|EE\b|JARDIN|COLEGIO|ESCUELA|INSTITUCION|INSTITUTO|C\.E)', re.IGNORECASE)
 INST_NUMERO = re.compile(r'^\d{3,4}\s')
 
-# Distritos conocidos de la provincia de Cañete
+# Distritos conocidos de la provincia de Cañete (con variantes normalizadas)
 DISTRITOS_CONOCIDOS = [
     "ASIA", "CALANGO", "CERRO AZUL", "CHILCA", "COAYLLO", "IMPERIAL",
     "LUNAHUANÁ", "LUNAHUANA", "MALA", "NUEVO IMPERIAL", "PACARÁN",
     "QUILMANÁ", "QUILMANA", "SAN ANTONIO", "SAN LUIS",
-    "SAN VICENTE DE CAÑETE", "SANTA CRUZ DE FLORES", "ZÚÑIGA", "ZUÑIGA"
+    "SAN VICENTE DE CAÑETE", "SANTA CRUZ DE FLORES", "ZÚÑIGA", "ZUÑIGA",
 ]
+# Variantes normalizadas sin acentos
+DISTRITOS_NORM = [_normalizar(d) for d in DISTRITOS_CONOCIDOS]
+# Mapa: normalizado -> nombre original
+_DIST_NORM_MAP = dict(zip(DISTRITOS_NORM, DISTRITOS_CONOCIDOS))
+# Variante extra: SAN VICENTE CAÑETE (sin DE)
+_DIST_NORM_MAP["SAN VICENTE CAÑETE"] = "SAN VICENTE DE CAÑETE"
+_DIST_NORM_MAP[_normalizar("SAN VICENTE CAÑETE")] = "SAN VICENTE DE CAÑETE"
+
 DISTRITOS_SET = {d.upper() for d in DISTRITOS_CONOCIDOS}
 
 # Palabras que NUNCA son distrito ni institución (son cargos u otros)
@@ -49,16 +67,35 @@ NO_INST_DIST = [
     "COORDINADOR", "JEFE", "SUBDIRECTOR", "PROMOTOR", "TECNICO",
     "PSICOLOGO", "ENFERMERO", "MEDICO", "TRABAJADOR", "ADMINISTRATIVO",
     "BASICA", "DETALLE", "REINTEGRO", "ESCOLARIDAD", "AGUINALDO",
-    "DL20", "DL25", "LEY ", "LEY-"
+    "DL20", "DL25", "LEY ", "LEY-", "CN.", "C.N.", "EXP.", "INF.",
+    "DRD.", "DF."
 ]
 
-# Patrones para identificar cargos docentes
+# Patrones para identificar cargos docentes (ordenados por especificidad)
+# Nota: los puntos (.) pueden aparecer como espacios o viceversa en el Excel
 CARGO_PATRON = re.compile(
-    r'^(PROF\.|PROF\s|DIRECTOR|AUX\.|ASESOR|SECRETARIA|SECRETARIO|'
-    r'OFICINISTA|ESPECIALISTA|COORDINADOR|JEFE|SUBDIRECTOR|PROMOTOR|'
-    r'TECNICO|PSICOLOGO|ENFERMERO|MEDICO|TRABAJADOR[A]?\s|'
-    r'ADMINISTRATIVO|DOCENTE|INSPECTOR|BIBLIOTECARIO|LABORATORIO|'
-    r'LABORAT\.|EDUCAC\.|EDUCACIÓN|EDUCACION)',
+    r'^(?:\s*'
+    r'PROF\.\s*(?:DE\s+AULA|POR\s+HORA|AULA)?\b'
+    r'|PROF(?:-|\s)AULA\b'
+    r'|DOC\.\s*(?:COORD(?:INAD)?\.?|BIBLIOTEC)\b|DOCENTE\b'
+    r'|DIRECTOR\b|DIREC\.?(?:\s*C\.?\s*E|TOR|INTERINA|INT|C\.?\s*E\.?)?\b|SUBDIRECTOR\b'
+    r'|AUX\.\s*(?:DE\s+EDUC(?:ACI[OÓ]N?)?\.?|BIBLIOT(?:ECA|EC)?\.?|EDUC(?:AC?\.?|ACI[OÓ]N?)?|LABORAT(?:ORIO)?\.?)?\b'
+    r'|EUX\.EDUC\.?\b'
+    r'|TRAB\.?\s*(?:DE[.\s]+SERV(?:IC)?\.?|SERV\.?)\s*I{0,3}\b'
+    r'|TRAB(?:-|\s)SERV\.?\s*I{0,3}\b|TRABSERV\.?I?\b'
+    r'|PER\.\s*SERV?\.?I{0,2}\b|SERVICIO\b'
+    r'|ASESOR\b|SECRETARIA\b|SECRETARIO\b'
+    r'|OFICINISTA\b|OFIC(?:\.|INA)?\b|OFI\.II\b|OF\b'
+    r'|ESPECIALISTA\b|COORDINADOR\b|COORD\b|JEFE\b|PROMOTOR\b'
+    r'|TECNICO\b|PSICOLOGO\b|ENFERMERO\b|MEDICO\b|ADMINISTRATIVO\b'
+    r'|INSPECTOR\b|BIBLIOTECARIO\b|LABORATORIO\b|LABORAT\.\b'
+    r'|EDUCAC\.\b|EDUCACIÓN\b|EDUCACION\b'
+    r'|ASIST(?:\.|\s+)(?:SOCIAL|HIST\.GEO|MATEMATICAS)\b'
+    r'|ASE\.CC\.NN\b'
+    r'|PERSONAL\b'
+    r'|SU-DIR(?:-|\s+)(?:AREA|ED-PRI-N)\b'
+    r'|D3120\b'
+    r')\s*',
     re.IGNORECASE
 )
 
@@ -178,8 +215,9 @@ def _leer_filas(filepath: str) -> list:
 
 def _es_no_inst_dist(texto: str) -> bool:
     """Verifica si un texto definitivamente NO es institución ni distrito."""
+    t = texto.upper().strip()
     for palabra in NO_INST_DIST:
-        if texto.upper().startswith(palabra):
+        if t.startswith(palabra):
             return True
     return False
 
@@ -201,11 +239,14 @@ def _extraer_inst(texto: str) -> str | None:
     # Buscar números al inicio (ej: "2105 CENTRO DE VARONES")
     if INST_NUMERO.match(t):
         return t
+    # Buscar "CE 20131" o "CEI 487" sin punto - match completo
+    if re.match(r'^CEI?\s+\d{3,5}', t, re.IGNORECASE):
+        return t
     return None
 
 
 def _extraer_distrito(texto: str) -> str | None:
-    """Extrae nombre de distrito de un texto."""
+    """Extrae nombre de distrito de un texto, soportando variaciones sin acentos/Ñ."""
     t = texto.strip().rstrip(":-–—").upper()
     if _es_no_inst_dist(t):
         return None
@@ -233,6 +274,23 @@ def _extraer_distrito(texto: str) -> str | None:
         primeros = du.split()[0] if ' ' in du else du
         if len(primeros) >= 4 and t.startswith(primeros):
             return dist
+    # ── Búsqueda por normalización (Ñ→N, acentos→normales) ──
+    t_norm = _normalizar(texto)
+    # Exacto normalizado
+    if t_norm in _DIST_NORM_MAP:
+        return _DIST_NORM_MAP[t_norm]
+    # Contiene distrito normalizado (ej: "SAN VICENTE CANETE" contiene "SAN VICENTE DE CANETE" normalizado)
+    for d_norm, d_orig in _DIST_NORM_MAP.items():
+        if d_norm in t_norm:
+            return d_orig
+        # Que el texto sea subcadena del distrito normalizado
+        if len(t_norm) >= 4 and d_norm.startswith(t_norm):
+            return d_orig
+        # Primeras palabras coinciden (ej: "CERRO AZUL" al inicio del texto)
+        t_first = t_norm.split()[0] if ' ' in t_norm else t_norm
+        d_first = d_norm.split()[0] if ' ' in d_norm else d_norm
+        if len(t_first) >= 4 and t_norm.startswith(d_first):
+            return d_orig
     return None
 
 
@@ -300,7 +358,7 @@ def _clasificar_info_empleado(texto: str, emp: dict) -> None:
 
     # 2. Detectar RD / Resolución
     if not emp["resolucion"] and re.match(
-        r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.|R\.N\.|R\.G\.)\w*\s*[\d\-./A-Za-z\s]+",
+        r"^(RD|RM|DS|LEY|DL|R\.D\.|R\.M\.|R\.N\.|R\.G\.|DRD\.|CN\.|C\.N\.|RDL|RDUSE\.|INF\.|DF\.|EXP\.)\w*\s*[\d\-./A-Za-z\s]+",
         texto, re.IGNORECASE
     ):
         emp["resolucion"] = t
@@ -311,32 +369,32 @@ def _clasificar_info_empleado(texto: str, emp: dict) -> None:
         emp["codigo"] = t
         return
 
-    # 4. Detectar CARGO docente por patrón
-    if not emp["cargo"] and CARGO_PATRON.match(t):
-        emp["cargo"] = t
-        return
-
-    # 5. Ignorar si es obviamente NO-institución/distrito
-    texto_upper = t.upper()
-    for no in NO_INST_DIST:
-        if texto_upper.startswith(no):
-            return
-
-    # 6. Detectar DISTRITO (siempre intentar, solo si aún no tenemos)
+    # 4. Antes de clasificar cargo, verificar si es distrito o institución
+    # (para que SAN VICENTE CANETE no sea clasificado como cargo)
     if not emp["distrito"]:
         dist = _extraer_distrito(texto)
         if dist:
             emp["distrito"] = dist
             return
 
-    # 7. Detectar INSTITUCIÓN (siempre intentar, solo si aún no tenemos)
     if not emp["institucion"]:
         inst = _extraer_inst(texto)
-        if inst and not _extraer_distrito(texto):
+        if inst:
             emp["institucion"] = inst
             return
 
-    # 8. CARGO fallback — solo si no es distrito ni institución
+    # 5. Detectar CARGO docente por patrón (solo si no es distrito ni institución)
+    if not emp["cargo"] and CARGO_PATRON.match(t):
+        # Doble verificación: asegurar que no sea distrito
+        if not _extraer_distrito(t) and not _extraer_inst(t):
+            emp["cargo"] = t
+            return
+
+    # 6. Ignorar si es obviamente NO-institución/distrito
+    if _es_no_inst_dist(t):
+        return
+
+    # 7. CARGO fallback — solo si no es distrito ni institución
     if not emp["cargo"]:
         if not _extraer_distrito(texto) and not _extraer_inst(texto):
             emp["cargo"] = t
