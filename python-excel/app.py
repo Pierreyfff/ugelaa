@@ -750,7 +750,6 @@ def _escribir_planilla_anual(ws, year, planillas_year, personal, logo_bytes=None
     if logo_bytes and ws._images is not None and len(ws._images) == 0:
         try:
             from openpyxl.drawing.image import Image as XlImage
-            from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
             import io as _io
             _has_img = False
             try:
@@ -759,11 +758,7 @@ def _escribir_planilla_anual(ws, year, planillas_year, personal, logo_bytes=None
                 pass
             if not _has_img:
                 img = XlImage(_io.BytesIO(logo_bytes))
-                _from = AnchorMarker(col=0, row=0, colOff=0, rowOff=0)
-                _to = AnchorMarker(col=2, row=3, colOff=0, rowOff=0)
-                img.anchor = TwoCellAnchor(editAs="twoCell", _from=_from, to=_to)
-                ws.add_image(img)
-            # Clear the #VALUE! error in A1 (formula from rich data that don't exist)
+                ws.add_image(img, "A1")
             ws['A1'].value = None
         except Exception as ex:
             import sys
