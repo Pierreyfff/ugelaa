@@ -732,7 +732,7 @@ def _unmerge_data_zone(ws):
             )
 
 
-def _escribir_planilla_anual(ws, year, planillas_year, personal, logo_path):
+def _escribir_planilla_anual(ws, year, planillas_year, personal, logo_bytes=None):
     """Write one year's worth of data into a worksheet using the fixed template layout.
 
     Template layout (rows):
@@ -746,18 +746,17 @@ def _escribir_planilla_anual(ws, year, planillas_year, personal, logo_path):
      36:  TOTAL LIQUIDO   (per‑month)
     Columns D=4=ENE … O=15=DIC
     """
-    # ── Insert logo A1:C4 ────────────────────────────────────────────────
+    # ── Insert logo from template A1:C4 ────────────────────────────────
     ws["A1"].value = None
-    if logo_path:
+    if logo_bytes:
         try:
             from openpyxl.drawing.image import Image as XlImage
-            img = XlImage(logo_path)
-            img.width = 200
-            img.height = 65
+            import io as _io
+            img = XlImage(_io.BytesIO(logo_bytes))
             ws.add_image(img, "A1")
         except Exception as ex:
             import sys
-            print(f"[WARN] Logo load failed: {ex}", file=sys.stderr, flush=True)
+            print(f"[WARN] Logo insert failed: {ex}", file=sys.stderr, flush=True)
 
     # ── Employee info (rows 5–8) ──────────────────────────────────────────
     _set_cell(ws, 5, 3,
@@ -900,7 +899,7 @@ def export_excel():
     personal = d.get("personal", {})
     planillas = d.get("planillas", [])
 
-    # ── Locate template and logo ──────────────────────────────────────────
+    # ── Locate template ──────────────────────────────────────────────────
     base_dir = os.path.dirname(__file__)
     template_path = os.path.join(app.config["UPLOAD_FOLDER"], "plantilla_nueva.xlsx")
     if not os.path.exists(template_path):
@@ -908,9 +907,17 @@ def export_excel():
     if not os.path.exists(template_path):
         return jsonify({"error": "Plantilla no encontrada en el servidor"}), 500
 
-    logo_path = os.path.join(base_dir, "logo_minedu-.png")
-    if not os.path.exists(logo_path):
-        logo_path = None
+    # Extract embedded logo image from template (xl/media/image1.png)
+    logo_bytes = None
+    try:
+        import zipfile as _zf
+        with _zf.ZipFile(template_path) as _z:
+            for _name in _z.namelist():
+                if "image" in _name.lower() and _name.endswith(".png"):
+                    logo_bytes = _z.read(_name)
+                    break
+    except Exception:
+        pass
 
     if not planillas:
         return jsonify({"error": "El empleado no tiene planillas registradas"}), 404
@@ -935,7 +942,7 @@ def export_excel():
         # Write each year's data
         for yr, ws in year_sheets.items():
             year_planillas = [p for p in planillas if p["anio"] == yr]
-            _escribir_planilla_anual(ws, yr, year_planillas, personal, logo_path)
+            _escribir_planilla_anual(ws, yr, year_planillas, personal, logo_bytes)
 
         buf = io.BytesIO()
         wb.save(buf)
