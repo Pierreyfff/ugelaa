@@ -29,13 +29,110 @@ export default function Importar() {
   const [lockPeriodo, setLockPeriodo] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [editDuplicados, setEditDuplicados] = useState<Record<string, { dni: string; nombre: string }>>({})
+  const [empleadosRaw, setEmpleadosRaw] = useState<any[]>([])
+  const [personalCache, setPersonalCache] = useState<{ by_dni: Record<string, number>; by_name: Record<string, number> }>({ by_dni: {}, by_name: {} })
   const [showLimpiar, setShowLimpiar] = useState(false)
   const [limpiarMes, setLimpiarMes] = useState(0)
   const [limpiarAnio, setLimpiarAnio] = useState(0)
   const [limpiando, setLimpiando] = useState(false)
   const [cleanError, setCleanError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const normalizeKey = (s: string) => s.toLowerCase().replace(/[^a-záéíóúñ0-9]/g, '')
+
+  const localAnalyze = (emps: any[]) => {
+    // Group by DNI first
+    const byDNI: Record<string, { idx: number; dni: string; nombre: string }[]> = {}
+    const noMatchDNI: { idx: number; dni: string; nombre: string }[] = []
+    for (let i = 0; i < emps.length; i++) {
+      const e = emps[i]
+      if (!e.dni) { noMatchDNI.push(e); continue }
+      if (!byDNI[e.dni]) byDNI[e.dni] = []
+      byDNI[e.dni].push(e)
+    }
+    const duplicadosDNI: any[] = []
+    const exactos: number[] = []
+    for (const dni of Object.keys(byDNI)) {
+      const group = byDNI[dni]
+      if (group.length > 1) {
+        // Within same DNI, group by normalized name
+        const byName: Record<string, typeof group> = {}
+        for (const emp of group) {
+          const key = normalizeKey(emp.nombre || '')
+          if (!byName[key]) byName[key] = []
+          byName[key].push(emp)
+        }
+        const empleadosList: any[] = []
+        for (const nameKey of Object.keys(byName)) {
+          const nameGroup = byName[nameKey]
+          for (let j = 0; j < nameGroup.length; j++) {
+            const emp = nameGroup[j]
+            const isOriginal = j === 0
+            empleadosList.push({
+              idx: emp.idx,
+              dni: dni,
+              nombre: emp.nombre || '',
+              original: isOriginal,
+            })
+            if (!isOriginal) exactos.push(emp.idx)
+          }
+        }
+        duplicadosDNI.push({ dni, empleados: empleadosList })
+      }
+    }
+    for (const emp of noMatchDNI) {
+      duplicadosDNI.push({ dni: '', empleados: [{ idx: emp.idx, dni: '', nombre: emp.nombre || '', original: true }] })
+    }
+    const singleByGroup = (empsByDNI: typeof byDNI) => {
+      const singles: number[] = []
+      for (const dni of Object.keys(empsByDNI)) {
+        const group = empsByDNI[dni]
+        if (group.length === 1) singles.push(group[0].idx)
+      }
+      return singles
+    }
+    return { duplicadosDNI, exactos, singles: singleByGroup(byDNI) }
+  }
+
+  const localEstimate = (emps: any[], pc: typeof personalCache) => {
+    const matched = new Set<number>()
+    let unmatched = 0
+    for (const emp of emps) {
+      if (!emp.nombre) continue
+      let pid: number | undefined
+      if (emp.dni) pid = pc.by_dni[emp.dni]
+      if (!pid) pid = pc.by_name[normalizeKey(emp.nombre)]
+      if (pid) matched.add(pid)
+      else unmatched++
+    }
+    return matched.size + unmatched
+  }
+
+  const recalc = (edits: Record<string, { dni: string; nombre: string }>) => {
+    if (!empleadosRaw.length) return
+    // Apply edits to a copy
+    const emps = empleadosRaw.map(e => ({ ...e }))
+    for (const [key, val] of Object.entries(edits)) {
+      const idx = parseInt(key.replace('idx_', ''))
+      if (emps[idx]) {
+        if (val.dni !== undefined) emps[idx].dni = val.dni
+        if (val.nombre !== undefined) emps[idx].nombre = val.nombre
+      }
+    }
+    const { duplicadosDNI, exactos } = localAnalyze(emps)
+    const exactosSet = new Set(exactos)
+    const filtrados = emps.filter((_: any, i: number) => !exactosSet.has(i))
+    const planillas = localEstimate(filtrados, personalCache)
+    setValidacion((prev: any) => prev ? {
+      ...prev,
+      dnis_duplicados: duplicadosDNI,
+      exactos: exactos.length,
+      exactos_indices: exactos,
+      a_importar: emps.length - exactos.length,
+      planillas_estimadas: planillas,
+      monto_total: filtrados.reduce((s: number, e: any) => s + (e.total_liquido || 0), 0),
+    } : prev)
+  }
 
   useEffect(() => {
     importarApi.periodos().then(res => {
@@ -44,31 +141,9 @@ export default function Importar() {
   }, [])
 
   useEffect(() => {
-    if (!validacion || !sessionId) return
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const editsArray = Object.entries(editDuplicados).map(([key, val]) => ({
-          idx: parseInt(key.replace('idx_', '')),
-          dni: val.dni,
-          nombre: val.nombre,
-        }))
-        const res = await importarApi.validateWithSession(sessionId, editsArray)
-        setValidacion(res.data)
-        const newExactos = new Set(res.data.exactos_indices || [])
-        const currentKeys = Object.keys(editDuplicados)
-        const needsCleanup = currentKeys.some(k => !newExactos.has(parseInt(k.replace('idx_', ''))))
-        if (needsCleanup) {
-          const next: Record<string, { dni: string; nombre: string }> = {}
-          for (const k of currentKeys) {
-            const idx = parseInt(k.replace('idx_', ''))
-            if (newExactos.has(idx)) next[k] = editDuplicados[k]
-          }
-          setEditDuplicados(next)
-        }
-      } catch { /* ignore */ }
-    }, 100)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+    if (validacion && empleadosRaw.length > 0) {
+      recalc(editDuplicados)
+    }
   }, [editDuplicados])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -105,6 +180,8 @@ export default function Importar() {
       const data = res.data
       setValidacion(data)
       setSessionId(data.session_id || null)
+      setEmpleadosRaw(data.empleados || [])
+      setPersonalCache(data.personal_cache || { by_dni: {}, by_name: {} })
       const exactosSet = new Set(data.exactos_indices || [])
       const edits: Record<string, { dni: string; nombre: string }> = {}
       ;(data.dnis_duplicados || []).forEach((item: any) => {

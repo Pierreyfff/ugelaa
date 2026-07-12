@@ -273,6 +273,37 @@ func ValidateExcel(c *gin.Context) {
 		log.Printf("[validate] warnings de estimación: %v", warnings)
 	}
 
+	// Build personal cache so frontend can estimate locally
+	var allPersonal []models.Personal
+	db.Find(&allPersonal)
+	byDNI := make(map[string]uint, len(allPersonal))
+	byName := make(map[string]uint, len(allPersonal))
+	for i := range allPersonal {
+		p := &allPersonal[i]
+		if p.DNI != "" {
+			byDNI[p.DNI] = p.ID
+		}
+		full := normalizeKey(p.Apellidos + " " + p.Nombres)
+		byName[full] = p.ID
+	}
+
+	// Slim empleados for local re-analysis (only what matters for duplicate/planilla logic)
+	type slimEmp struct {
+		Idx           int     `json:"idx"`
+		DNI           string  `json:"dni"`
+		Nombre        string  `json:"nombre"`
+		TotalLiquido  *float64 `json:"total_liquido"`
+	}
+	empleadosRaw := make([]slimEmp, len(empleados))
+	for i, emp := range empleados {
+		empleadosRaw[i] = slimEmp{
+			Idx:          i,
+			DNI:          emp.DNI,
+			Nombre:       emp.Nombre,
+			TotalLiquido: emp.TotalLiquido,
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"valid":               true,
 		"total_empleados":     total,
@@ -286,6 +317,11 @@ func ValidateExcel(c *gin.Context) {
 		"sin_nombre":          sinNombre,
 		"monto_total":         montoTotal,
 		"session_id":          sessionID,
+		"empleados":           empleadosRaw,
+		"personal_cache": gin.H{
+			"by_dni":  byDNI,
+			"by_name": byName,
+		},
 	})
 }
 
