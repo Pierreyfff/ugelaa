@@ -195,7 +195,7 @@ export default function Importar() {
   const mesNombre = MESES.find(m => m.v === mes)?.l ?? ''
 
   const totalEncontrados = validacion?.total_empleados || 0
-  const aImportar = validacion?.a_importar ?? totalEncontrados
+  const aImportar = validacion?.planillas_estimadas ?? validacion?.a_importar ?? totalEncontrados
   const exactosFinal = validacion?.exactos || 0
   const dnisCount = validacion?.dnis_duplicados?.length || 0
   const nombresCount = validacion?.nombres_duplicados?.length || 0

@@ -133,6 +133,8 @@ func ProcessExcel(c *gin.Context) {
 }
 
 func ValidateExcel(c *gin.Context) {
+	db := getDB(c)
+
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No se encontró archivo"})
@@ -195,17 +197,23 @@ func ValidateExcel(c *gin.Context) {
 		}
 	}
 	montoTotal := calculateTotalAmount(filtrados)
+	planillasEstimadas, sinNombre, warnings := estimatePlanillas(db, filtrados)
+	if len(warnings) > 0 {
+		log.Printf("[validate] warnings de estimación: %v", warnings)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"valid":              true,
-		"total_empleados":    total,
-		"preview":            preview,
-		"dnis_duplicados":    analisis.DNIsDuplicados,
-		"nombres_duplicados": analisis.NombresDuplicados,
-		"exactos":            analisis.Exactos,
-		"exactos_indices":    analisis.ExactosIndices,
-		"a_importar":         total - analisis.Exactos,
-		"monto_total":        montoTotal,
+		"valid":               true,
+		"total_empleados":     total,
+		"preview":             preview,
+		"dnis_duplicados":     analisis.DNIsDuplicados,
+		"nombres_duplicados":  analisis.NombresDuplicados,
+		"exactos":             analisis.Exactos,
+		"exactos_indices":     analisis.ExactosIndices,
+		"a_importar":          total - analisis.Exactos,
+		"planillas_estimadas": planillasEstimadas,
+		"sin_nombre":          sinNombre,
+		"monto_total":         montoTotal,
 	})
 }
 
@@ -302,6 +310,61 @@ type empEntry struct {
 
 func normalizeKey(s string) string {
 	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(s))), " ")
+}
+
+// estimatePlanillas corre la misma lógica de matching que importarEmpleados
+// pero solo para contar cuántas planillas se crearán realmente.
+func estimatePlanillas(db *gorm.DB, empleados []extractedEmployee) (planillas int, sinNombre int, warnings []string) {
+	var allPersonal []models.Personal
+	db.Find(&allPersonal)
+
+	byDNI := make(map[string]*models.Personal, len(allPersonal))
+	byName := make(map[string]*models.Personal, len(allPersonal))
+	for i := range allPersonal {
+		p := &allPersonal[i]
+		if p.DNI != "" {
+			byDNI[p.DNI] = p
+		}
+		full := normalizeKey(p.Apellidos + " " + p.Nombres)
+		byName[full] = p
+	}
+
+	matchedIDs := make(map[uint]bool)
+	unmatched := 0
+
+	for _, emp := range empleados {
+		if emp.Nombre == "" {
+			sinNombre++
+			warnings = append(warnings, "Empleado ignorado: sin nombre")
+			continue
+		}
+
+		var match *models.Personal
+
+		if emp.DNI != "" {
+			if p, ok := byDNI[emp.DNI]; ok {
+				match = p
+			}
+		}
+
+		if match == nil {
+			nameKey := normalizeKey(emp.Nombre)
+			if p, ok := byName[nameKey]; ok {
+				match = p
+			}
+		}
+
+		if match != nil {
+			matchedIDs[match.ID] = true
+		} else {
+			unmatched++
+		}
+	}
+
+	// each unique matched personal = 1 planilla
+	// each unmatched entry = 1 new personal = 1 planilla (unique ID)
+	planillas = len(matchedIDs) + unmatched
+	return
 }
 
 func importarEmpleados(db *gorm.DB, mes, anio int, empleados []extractedEmployee) (personalCreados, personalActualizados, planillasCreadas int, duplicados []string, warnings []string) {
