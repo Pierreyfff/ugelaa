@@ -1,7 +1,6 @@
 import axios from 'axios'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
-export const PYTHON_URL = import.meta.env.VITE_PYTHON_URL || '/python'
 
 const api = axios.create({
   baseURL: API_URL,
@@ -75,19 +74,41 @@ export const dashboardApi = {
 }
 
 export const importarApi = {
-  excel: (file: File, mes: number, anio: number) => {
+  validate: (file: File, edits: any[] = []) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (edits.length > 0) {
+      formData.append('edits', JSON.stringify(edits))
+    }
+    return api.post('/api/validate-excel', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    })
+  },
+  process: (file: File, mes: number, anio: number, edits: any[] = []) => {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('mes', String(mes))
     formData.append('anio', String(anio))
-    return fetch(`${PYTHON_URL}/process-excel`, { method: 'POST', body: formData })
-      .then(r => r.json())
+    formData.append('edits', JSON.stringify(edits))
+    return api.post('/api/process-excel', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000,
+    })
   },
   limpiar: (mes: number, anio: number) =>
     api.delete('/api/importar/limpiar', { params: { mes, anio } }),
   limpiarTodo: () =>
     api.delete('/api/importar/limpiar-todo'),
   periodos: () => api.get('/api/importar/periodos'),
+}
+
+export const exportarApi = {
+  excel: (personalId: number) =>
+    api.post('/api/export-excel', { personal_id: personalId }, {
+      responseType: 'blob',
+      timeout: 60000,
+    }),
 }
 
 export const usuariosApi = {

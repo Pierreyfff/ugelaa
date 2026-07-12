@@ -581,9 +581,17 @@ func EditarPlanillaCompleta(c *gin.Context) {
 		}
 	}
 
-	// Recargar planilla
+	// Recargar planilla y recalcular totales
+	var totalHab, totalDesc float64
+	db.Model(&models.Ingreso{}).Where("planilla_id = ?", planilla.ID).Select("COALESCE(SUM(monto), 0)").Scan(&totalHab)
+	db.Model(&models.Descuento{}).Where("planilla_id = ?", planilla.ID).Select("COALESCE(SUM(monto), 0)").Scan(&totalDesc)
+	db.Model(&planilla).Updates(map[string]interface{}{
+		"total_haberes":    totalHab,
+		"total_descuentos": totalDesc,
+		"total_liquido":    totalHab - totalDesc,
+	})
+
 	db.Preload("Personal").Preload("Ingresos").Preload("Descuentos").First(&planilla, id)
-	planilla.CalculateTotal()
 
 	c.JSON(http.StatusOK, gin.H{"message": "Planilla actualizada", "planilla": planilla})
 }
@@ -704,7 +712,10 @@ func ActualizarIngreso(c *gin.Context) {
 
 	var planilla models.Planilla
 	db.First(&planilla, ingreso.PlanillaID)
-	db.Model(&planilla).Update("total_haberes", gorm.Expr("COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = ?), 0)", ingreso.PlanillaID))
+	db.Model(&planilla).Updates(map[string]interface{}{
+		"total_haberes": gorm.Expr("COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = ?), 0)", ingreso.PlanillaID),
+		"total_liquido": gorm.Expr("COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = ?), 0) - COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = ?), 0)", ingreso.PlanillaID, ingreso.PlanillaID),
+	})
 
 	c.JSON(http.StatusOK, ingreso)
 }
@@ -724,7 +735,10 @@ func EliminarIngreso(c *gin.Context) {
 
 	var planilla models.Planilla
 	db.First(&planilla, planillaID)
-	db.Model(&planilla).Update("total_haberes", gorm.Expr("COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = ?), 0)", planillaID))
+	db.Model(&planilla).Updates(map[string]interface{}{
+		"total_haberes": gorm.Expr("COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = ?), 0)", planillaID),
+		"total_liquido": gorm.Expr("COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = ?), 0) - COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = ?), 0)", planillaID, planillaID),
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Eliminado correctamente"})
 }
@@ -766,7 +780,10 @@ func ActualizarDescuento(c *gin.Context) {
 
 	var planilla models.Planilla
 	db.First(&planilla, descuento.PlanillaID)
-	db.Model(&planilla).Update("total_descuentos", gorm.Expr("COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = ?), 0)", descuento.PlanillaID))
+	db.Model(&planilla).Updates(map[string]interface{}{
+		"total_descuentos": gorm.Expr("COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = ?), 0)", descuento.PlanillaID),
+		"total_liquido":    gorm.Expr("COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = ?), 0) - COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = ?), 0)", descuento.PlanillaID, descuento.PlanillaID),
+	})
 
 	c.JSON(http.StatusOK, descuento)
 }
@@ -786,7 +803,10 @@ func EliminarDescuento(c *gin.Context) {
 
 	var planilla models.Planilla
 	db.First(&planilla, planillaID)
-	db.Model(&planilla).Update("total_descuentos", gorm.Expr("COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = ?), 0)", planillaID))
+	db.Model(&planilla).Updates(map[string]interface{}{
+		"total_descuentos": gorm.Expr("COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = ?), 0)", planillaID),
+		"total_liquido":    gorm.Expr("COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = ?), 0) - COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = ?), 0)", planillaID, planillaID),
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Eliminado correctamente"})
 }
@@ -1184,6 +1204,15 @@ func ImportarHaberes(c *gin.Context) {
 					return
 				}
 			}
+
+			var tHab, tDesc float64
+			tx.Model(&models.Ingreso{}).Where("planilla_id = ?", planilla.ID).Select("COALESCE(SUM(monto), 0)").Scan(&tHab)
+			tx.Model(&models.Descuento{}).Where("planilla_id = ?", planilla.ID).Select("COALESCE(SUM(monto), 0)").Scan(&tDesc)
+			tx.Model(&planilla).Updates(map[string]interface{}{
+				"total_haberes":    tHab,
+				"total_descuentos": tDesc,
+				"total_liquido":    tHab - tDesc,
+			})
 		}
 	}
 

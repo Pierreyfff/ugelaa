@@ -560,15 +560,6 @@ El frontend usa Nginx con:
 
 ---
 
-## Credenciales
-
-### Usuario Administrador (creado automáticamente)
-
-| Campo | Valor |
-|-------|-------|
-| **Email** | admin@planillas.su |
-| **Password** | admin123 |
-
 ### Base de Datos
 
 | Campo | Valor |

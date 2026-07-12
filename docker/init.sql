@@ -1,5 +1,5 @@
 -- Sistema de Planillas - Schema de Base de Datos
--- PostgreSQL
+-- PostgreSQL (ejecutar solo si no se usa AutoMigrate de GORM)
 
 -- Tabla de usuarios
 CREATE TABLE IF NOT EXISTS usuarios (
@@ -7,6 +7,9 @@ CREATE TABLE IF NOT EXISTS usuarios (
     nombre VARCHAR(100) NOT NULL,
     email VARCHAR(150) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
+    rol VARCHAR(20) DEFAULT 'ayudante',
+    password_changed BOOLEAN DEFAULT FALSE,
+    token VARCHAR(128),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -32,7 +35,7 @@ CREATE TABLE IF NOT EXISTS planilla (
     anio SMALLINT NOT NULL CHECK (anio >= 1900),
     total_haberes NUMERIC(12,2) NOT NULL DEFAULT 0,
     total_descuentos NUMERIC(12,2) NOT NULL DEFAULT 0,
-    total_liquido NUMERIC(12,2) GENERATED ALWAYS AS (total_haberes - total_descuentos) STORED,
+    total_liquido NUMERIC(12,2) NOT NULL DEFAULT 0,
     creado_por INT REFERENCES usuarios(id),
     creado_en TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (personal_id, mes, anio)
@@ -56,48 +59,40 @@ CREATE TABLE IF NOT EXISTS descuentos (
     comentario TEXT
 );
 
--- Índices para optimización
+-- Índices compuestos para consultas rápidas
+CREATE INDEX IF NOT EXISTS idx_personal_dni ON personal(dni);
+CREATE INDEX IF NOT EXISTS idx_personal_apellidos_nombres ON personal(apellidos, nombres);
 CREATE INDEX IF NOT EXISTS idx_planilla_personal ON planilla(personal_id);
-CREATE INDEX IF NOT EXISTS idx_planilla_mes_anio ON planilla(mes, anio);
+CREATE INDEX IF NOT EXISTS idx_planilla_anio_mes ON planilla(anio, mes);
 CREATE INDEX IF NOT EXISTS idx_ingresos_planilla ON ingresos(planilla_id);
 CREATE INDEX IF NOT EXISTS idx_descuentos_planilla ON descuentos(planilla_id);
-CREATE INDEX IF NOT EXISTS idx_personal_dni ON personal(dni);
-CREATE INDEX IF NOT EXISTS idx_personal_nombre ON personal(apellidos, nombres);
 
--- Trigger para actualizar total_haberes en ingresos
-CREATE OR REPLACE FUNCTION update_planilla_haberes()
+-- Función: actualizar total_haberes y total_liquido al modificar ingresos
+CREATE OR REPLACE FUNCTION update_planilla_totales()
 RETURNS TRIGGER AS $$
 DECLARE pid INT;
 BEGIN
     IF TG_OP = 'DELETE' THEN pid := OLD.planilla_id; ELSE pid := NEW.planilla_id; END IF;
+
     UPDATE planilla
-    SET total_haberes = COALESCE(
-        (SELECT SUM(monto) FROM ingresos WHERE planilla_id = pid), 0
-    )
+    SET total_haberes = COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = pid), 0),
+        total_descuentos = COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = pid), 0),
+        total_liquido = COALESCE((SELECT SUM(monto) FROM ingresos WHERE planilla_id = pid), 0)
+                       - COALESCE((SELECT SUM(monto) FROM descuentos WHERE planilla_id = pid), 0)
     WHERE id = pid;
+
     IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trigger_update_haberes
+-- Triggers sobre ingresos y descuentos
+DROP TRIGGER IF EXISTS trigger_update_haberes ON ingresos;
+DROP TRIGGER IF EXISTS trigger_update_descuentos ON descuentos;
+
+CREATE TRIGGER trigger_update_planilla_ingresos
 AFTER INSERT OR UPDATE OR DELETE ON ingresos
-FOR EACH ROW EXECUTE FUNCTION update_planilla_haberes();
+FOR EACH ROW EXECUTE FUNCTION update_planilla_totales();
 
--- Trigger para actualizar total_descuentos en descuentos
-CREATE OR REPLACE FUNCTION update_planilla_descuentos()
-RETURNS TRIGGER AS $$
-DECLARE pid INT;
-BEGIN
-    IF TG_OP = 'DELETE' THEN pid := OLD.planilla_id; ELSE pid := NEW.planilla_id; END IF;
-    UPDATE planilla
-    SET total_descuentos = COALESCE(
-        (SELECT SUM(monto) FROM descuentos WHERE planilla_id = pid), 0
-    )
-    WHERE id = pid;
-    IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_update_descuentos
+CREATE TRIGGER trigger_update_planilla_descuentos
 AFTER INSERT OR UPDATE OR DELETE ON descuentos
-FOR EACH ROW EXECUTE FUNCTION update_planilla_descuentos();
+FOR EACH ROW EXECUTE FUNCTION update_planilla_totales();

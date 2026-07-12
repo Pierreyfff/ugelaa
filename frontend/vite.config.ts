@@ -8,7 +8,6 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': { target: 'http://localhost:8080', changeOrigin: true },
-      '/python': { target: 'http://localhost:8081', changeOrigin: true },
     }
   }
 })

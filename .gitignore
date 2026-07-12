@@ -1,13 +1,19 @@
 # Dependencies
 frontend/node_modules/
-python-excel/__pycache__/
 *.pyc
 __pycache__/
 
 # Go
 backend/bin/
 backend/tmp/
+backend/server
+backend/server.exe
+backend/ugelaa-backend.exe
 
+# Environment variables
+.env
+.env.local
+.env.*.local
 
 # Build outputs
 frontend/dist/
@@ -20,7 +26,6 @@ frontend/build/
 
 # Uploads
 uploads/*
-!uploads/plantilla_nueva.xlsx
 
 # IDE
 .idea/

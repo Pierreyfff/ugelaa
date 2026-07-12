@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { personalApi, PYTHON_URL } from '../services/api'
+import { personalApi, exportarApi } from '../services/api'
 import { Search, Download, FileSpreadsheet, User, X, Hash, CheckCircle, CalendarDays, AlertCircle } from 'lucide-react'
 import { useTask } from '../App'
 
@@ -61,23 +61,8 @@ export default function Exportar() {
     setExporting(true)
     setExportError(null)
     try {
-      const res = await fetch(`${PYTHON_URL}/export-excel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personal_id: selectedPerson.id }),
-      })
-
-      if (!res.ok) {
-        let msg = `Error ${res.status}`
-        try {
-          const err = await res.json()
-          if (err.error) msg = err.error
-        } catch { msg = `Error del servidor (${res.status})` }
-        setExportError(msg)
-        return
-      }
-
-      const blob = await res.blob()
+      const res = await exportarApi.excel(selectedPerson.id)
+      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -87,7 +72,16 @@ export default function Exportar() {
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
     } catch (e: any) {
-      setExportError(e.message || 'Error de conexión al exportar')
+      const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Error de conexión al exportar'
+      if (e.response?.data instanceof Blob) {
+        try {
+          const text = await e.response.data.text()
+          const err = JSON.parse(text)
+          setExportError(err.error || msg)
+        } catch { setExportError(msg) }
+      } else {
+        setExportError(msg)
+      }
     } finally {
       setProcessing(null)
       setExporting(false)

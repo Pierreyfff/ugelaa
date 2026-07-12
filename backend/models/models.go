@@ -17,7 +17,7 @@ type Usuario struct {
 
 type Personal struct {
 	ID          uint      `json:"id" gorm:"primaryKey"`
-	DNI         string    `json:"dni" gorm:"size:20"`
+	DNI         string    `json:"dni" gorm:"size:20;index:idx_personal_dni"`
 	Nombres     string    `json:"nombres" gorm:"size:100;not null"`
 	Apellidos   string    `json:"apellidos" gorm:"size:100;not null"`
 	Puesto      string    `json:"puesto" gorm:"size:100"`
@@ -32,28 +32,28 @@ func (Personal) TableName() string { return "personal" }
 
 func (Planilla) TableName() string { return "planilla" }
 
-type Planilla struct {
-	ID              uint        `json:"id" gorm:"primaryKey"`
-	PersonalID      uint        `json:"personal_id" gorm:"not null"`
-	Personal        Personal    `json:"personal,omitempty" gorm:"foreignKey:PersonalID"`
-	Mes             int16       `json:"mes" gorm:"not null"`
-	Anio            int16       `json:"anio" gorm:"not null"`
-	TotalHaberes    float64     `json:"total_haberes" gorm:"default:0"`
-	TotalDescuentos float64     `json:"total_descuentos" gorm:"default:0"`
-	TotalLiquido    float64     `json:"total_liquido" gorm:"-"`
-	CreadoPor       *uint       `json:"creado_por"`
-	CreadoEn        time.Time   `json:"creado_en"`
-	Ingresos        []Ingreso   `json:"ingresos,omitempty" gorm:"foreignKey:PlanillaID"`
-	Descuentos      []Descuento `json:"descuentos,omitempty" gorm:"foreignKey:PlanillaID"`
-}
-
 func (p *Planilla) CalculateTotal() {
 	p.TotalLiquido = p.TotalHaberes - p.TotalDescuentos
 }
 
+type Planilla struct {
+	ID              uint        `json:"id" gorm:"primaryKey"`
+	PersonalID      uint        `json:"personal_id" gorm:"not null;index:idx_planilla_personal;uniqueIndex:idx_planilla_uniq"`
+	Personal        Personal    `json:"personal,omitempty" gorm:"foreignKey:PersonalID"`
+	Mes             int16       `json:"mes" gorm:"not null;uniqueIndex:idx_planilla_uniq"`
+	Anio            int16       `json:"anio" gorm:"not null;uniqueIndex:idx_planilla_uniq;index:idx_planilla_mes_anio"`
+	TotalHaberes    float64     `json:"total_haberes" gorm:"default:0"`
+	TotalDescuentos float64     `json:"total_descuentos" gorm:"default:0"`
+	TotalLiquido    float64     `json:"total_liquido" gorm:"default:0"`
+	CreadoPor       *uint       `json:"creado_por"`
+	CreadoEn        time.Time   `json:"creado_en"`
+	Ingresos        []Ingreso   `json:"ingresos,omitempty" gorm:"foreignKey:PlanillaID;constraint:OnDelete:CASCADE"`
+	Descuentos      []Descuento `json:"descuentos,omitempty" gorm:"foreignKey:PlanillaID;constraint:OnDelete:CASCADE"`
+}
+
 type Ingreso struct {
 	ID         uint    `json:"id" gorm:"primaryKey"`
-	PlanillaID uint    `json:"planilla_id" gorm:"not null"`
+	PlanillaID uint    `json:"planilla_id" gorm:"not null;index:idx_ingresos_planilla;constraint:OnDelete:CASCADE"`
 	Tipo       string  `json:"tipo" gorm:"size:80;not null"`
 	Monto      float64 `json:"monto" gorm:"default:0"`
 	Comentario string  `json:"comentario" gorm:"type:text"`
@@ -61,7 +61,7 @@ type Ingreso struct {
 
 type Descuento struct {
 	ID         uint    `json:"id" gorm:"primaryKey"`
-	PlanillaID uint    `json:"planilla_id" gorm:"not null"`
+	PlanillaID uint    `json:"planilla_id" gorm:"not null;index:idx_descuentos_planilla;constraint:OnDelete:CASCADE"`
 	Tipo       string  `json:"tipo" gorm:"size:80;not null"`
 	Monto      float64 `json:"monto" gorm:"default:0"`
 	Comentario string  `json:"comentario" gorm:"type:text"`
@@ -78,7 +78,7 @@ type PlanillaImport struct {
 	Mes        int               `json:"mes"`
 	Anio       int               `json:"anio"`
 	Ingresos   []IngresoImport   `json:"ingresos"`
-	Descuentos  []DescuentoImport `json:"descuentos"`
+	Descuentos []DescuentoImport `json:"descuentos"`
 }
 
 type IngresoImport struct {
@@ -90,8 +90,6 @@ type DescuentoImport struct {
 	Tipo  string  `json:"tipo"`
 	Monto float64 `json:"monto"`
 }
-
-// ── New format from Python extractor (extractor_haberes) ─────────────────────
 
 type HaberesPayload struct {
 	Mes            *int            `json:"mes"`

@@ -1,7 +1,7 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Upload, FileSpreadsheet, AlertCircle, HelpCircle, AlertTriangle, Calendar, Pencil, Trash2, ChevronDown, Loader2 } from 'lucide-react'
-import { importarApi, PYTHON_URL } from '../services/api'
+import { importarApi } from '../services/api'
 import { useTask } from '../App'
 
 const MESES = [
@@ -34,12 +34,30 @@ export default function Importar() {
   const [limpiando, setLimpiando] = useState(false)
   const [cleanError, setCleanError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     importarApi.periodos().then(res => {
       setPeriodosImportados(res.data.periodos || [])
     }).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!validacion || !file) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const editsArray = Object.entries(editDuplicados).map(([key, val]) => ({
+          idx: parseInt(key.replace('idx_', '')),
+          dni: val.dni,
+          nombre: val.nombre,
+        }))
+        const res = await importarApi.validate(file, editsArray)
+        setValidacion(res.data)
+      } catch { /* ignore */ }
+    }, 400)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [editDuplicados])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0]
@@ -71,31 +89,19 @@ export default function Importar() {
     setProcessing('Validando archivo...')
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const response = await fetch(`${PYTHON_URL}/validate-excel`, { method: 'POST', body: formData })
-      const text = await response.text()
-      try {
-        const data = JSON.parse(text)
-        if (response.ok) {
-          setValidacion(data)
-          // Initialize editable duplicates by original index
-          const edits: Record<string, { dni: string; nombre: string }> = {}
-          ;(data.dnis_duplicados || []).forEach((item: any) => {
-            (item.empleados || []).forEach((emp: any) => {
-              edits[`idx_${emp.idx}`] = { dni: item.dni || '', nombre: emp.nombre || '' }
-            })
-          })
-          setEditDuplicados(edits)
-        } else {
-          setError(data.error || `Error del servidor`)
-        }
-      } catch {
-        setError(`Error del servidor (${response.status}). Verifica que el backend esté funcionando.`)
-      }
-    } catch (err) {
-      setError('Error de conexión')
+      const res = await importarApi.validate(file)
+      const data = res.data
+      setValidacion(data)
+      const edits: Record<string, { dni: string; nombre: string }> = {}
+      ;(data.dnis_duplicados || []).forEach((item: any) => {
+        (item.empleados || []).forEach((emp: any) => {
+          edits[`idx_${emp.idx}`] = { dni: item.dni || '', nombre: emp.nombre || '' }
+        })
+      })
+      setEditDuplicados(edits)
+    } catch (err: any) {
+      const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Error del servidor'
+      setError(msg)
     } finally {
       setProcessing(null)
       setUploading(false)
@@ -111,42 +117,25 @@ export default function Importar() {
     setValidacion(null)
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('mes', String(mes))
-      formData.append('anio', String(anio))
-
-      // Send editable duplicates as JSON
       const editsArray = Object.entries(editDuplicados).map(([key, val]) => ({
         idx: parseInt(key.replace('idx_', '')),
         dni: val.dni,
         nombre: val.nombre,
       }))
-      formData.append('edits', JSON.stringify(editsArray))
-
-      const response = await fetch(`${PYTHON_URL}/process-excel`, { method: 'POST', body: formData })
-      const text = await response.text()
-      if (response.ok) {
-        const result = JSON.parse(text)
-        sessionStorage.setItem('ultima_importacion', JSON.stringify({
-          mes,
-          anio,
-          total: result.personal || 0,
-          duplicados: result.exactos || 0,
-          monto: result.monto_total || 0,
-          timestamp: Date.now()
-        }))
-        navigate(`/?mes=${mes}&anio=${anio}`)
-        return
-      }
-      try {
-        const data = JSON.parse(text)
-        setError(data.error || `Error del servidor`)
-      } catch {
-        setError(`Error del servidor (${response.status}). Verifica que el backend esté funcionando.`)
-      }
+      const res = await importarApi.process(file, mes, anio, editsArray)
+      const result = res.data
+      sessionStorage.setItem('ultima_importacion', JSON.stringify({
+        mes,
+        anio,
+        total: result.planillas_creadas || 0,
+        duplicados: result.exactos || 0,
+        monto: result.monto_total || 0,
+        timestamp: Date.now()
+      }))
+      navigate(`/?mes=${mes}&anio=${anio}`)
     } catch (err: any) {
-      setError(err.message || 'Error de conexión')
+      const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Error del servidor'
+      setError(msg)
     } finally {
       setProcessing(null)
       setUploading(false)
@@ -206,21 +195,10 @@ export default function Importar() {
   const mesNombre = MESES.find(m => m.v === mes)?.l ?? ''
 
   const totalEncontrados = validacion?.total_empleados || 0
-  const exactosBase = validacion?.exactos || 0
-  const exactosIndices: number[] = validacion?.exactos_indices || []
+  const aImportar = validacion?.a_importar ?? totalEncontrados
+  const exactosFinal = validacion?.exactos || 0
   const dnisCount = validacion?.dnis_duplicados?.length || 0
   const nombresCount = validacion?.nombres_duplicados?.length || 0
-  let resolved = 0
-  Object.entries(editDuplicados).forEach(([key, val]) => {
-    const empIdx = parseInt(key.replace('idx_', ''))
-    if (!exactosIndices.includes(empIdx)) return
-    const grupo = (validacion?.dnis_duplicados || []).find((d: any) =>
-      d.empleados?.some((e: any) => e.idx === empIdx)
-    )
-    if (grupo && val.dni !== grupo.dni) resolved++
-  })
-  const exactosFinal = Math.max(exactosBase - resolved, 0)
-  const aImportar = totalEncontrados - exactosFinal
 
   return (
     <div className="space-y-6">

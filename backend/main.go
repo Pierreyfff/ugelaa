@@ -116,6 +116,8 @@ func main() {
 		api.POST("/usuarios/login", handlers.Login)
 		api.POST("/importar/haberes", handlers.ImportarHaberes)
 		api.GET("/personal/:id/exportar", handlers.ExportarPlanillasPersonal)
+		api.POST("/process-excel", handlers.ProcessExcel)
+		api.POST("/validate-excel", handlers.ValidateExcel)
 
 		protected := api.Group("")
 		protected.Use(handlers.AuthMiddleware())
@@ -177,6 +179,8 @@ func main() {
 			{
 				dashboard.GET("/resumen", handlers.ResumenDashboard)
 			}
+
+			protected.POST("/export-excel", handlers.ExportExcel)
 		}
 	}
 
