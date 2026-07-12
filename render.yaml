@@ -3,7 +3,7 @@ services:
     name: planillas-api
     env: docker
     repo: https://github.com/Pierreyfff/ugelaa
-    branch: final-v1
+    branch: ULTIMOO
     dockerfilePath: ./backend/Dockerfile
     envVars:
       - key: DATABASE_URL
