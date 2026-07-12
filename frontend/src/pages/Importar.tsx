@@ -92,10 +92,13 @@ export default function Importar() {
       const res = await importarApi.validate(file)
       const data = res.data
       setValidacion(data)
+      const exactosSet = new Set(data.exactos_indices || [])
       const edits: Record<string, { dni: string; nombre: string }> = {}
       ;(data.dnis_duplicados || []).forEach((item: any) => {
         (item.empleados || []).forEach((emp: any) => {
-          edits[`idx_${emp.idx}`] = { dni: item.dni || '', nombre: emp.nombre || '' }
+          if (exactosSet.has(emp.idx)) {
+            edits[`idx_${emp.idx}`] = { dni: item.dni || '', nombre: emp.nombre || '' }
+          }
         })
       })
       setEditDuplicados(edits)
@@ -197,8 +200,6 @@ export default function Importar() {
   const totalEncontrados = validacion?.total_empleados || 0
   const aImportar = validacion?.planillas_estimadas ?? validacion?.a_importar ?? totalEncontrados
   const exactosFinal = validacion?.exactos || 0
-  const dnisCount = validacion?.dnis_duplicados?.length || 0
-  const nombresCount = validacion?.nombres_duplicados?.length || 0
 
   return (
     <div className="space-y-6">
@@ -304,8 +305,8 @@ export default function Importar() {
                 <div>
                   <h3 className="text-lg font-bold text-amber-700 dark:text-amber-400">Vista Previa - Resumen de Datos</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {dnisCount > 0 || nombresCount > 0
-                      ? `Se detectaron ${totalEncontrados} empleados, de los cuales ${exactosFinal} tienen DNI y nombre repetido y serán descartados. Quedan ${aImportar} por importar.`
+                    {exactosFinal > 0
+                      ? `Se detectaron ${totalEncontrados} empleados. ${exactosFinal} duplicados exactos serán descartados (puedes editarlos abajo para conservarlos). Quedan ${aImportar} por importar.`
                       : 'No se encontraron duplicados. Los datos están listos para importar.'}
                   </p>
                 </div>
