@@ -54,6 +54,17 @@ export default function Importar() {
         }))
         const res = await importarApi.validate(file, editsArray)
         setValidacion(res.data)
+        const newExactos = new Set(res.data.exactos_indices || [])
+        const currentKeys = Object.keys(editDuplicados)
+        const needsCleanup = currentKeys.some(k => !newExactos.has(parseInt(k.replace('idx_', ''))))
+        if (needsCleanup) {
+          const next: Record<string, { dni: string; nombre: string }> = {}
+          for (const k of currentKeys) {
+            const idx = parseInt(k.replace('idx_', ''))
+            if (newExactos.has(idx)) next[k] = editDuplicados[k]
+          }
+          setEditDuplicados(next)
+        }
       } catch { /* ignore */ }
     }, 400)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
