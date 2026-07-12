@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"planillas-backend/models"
@@ -16,21 +19,36 @@ import (
 	"gorm.io/gorm"
 )
 
+type empleadosCache struct {
+	mu sync.RWMutex
+	m  map[string][]extractedEmployee
+}
+
+var parsedCache = empleadosCache{m: make(map[string][]extractedEmployee)}
+
+func genSessionID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func init() {
+	go func() {
+		for {
+			time.Sleep(10 * time.Minute)
+			parsedCache.mu.Lock()
+			// mantener solo entradas recientes (limpiar viejas cada 10 min)
+			parsedCache.m = make(map[string][]extractedEmployee)
+			parsedCache.mu.Unlock()
+		}
+	}()
+}
+
 func ProcessExcel(c *gin.Context) {
 	start := time.Now()
 	db := getDB(c)
 
-	file, err := c.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No se encontró archivo"})
-		return
-	}
-
-	filename := file.Filename
-	if !strings.HasSuffix(strings.ToLower(filename), ".xlsx") && !strings.HasSuffix(strings.ToLower(filename), ".xls") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Solo se aceptan archivos Excel (.xlsx, .xls)"})
-		return
-	}
+	sessionID := c.PostForm("session_id")
 
 	mesStr := c.PostForm("mes")
 	anioStr := c.PostForm("anio")
@@ -55,22 +73,49 @@ func ProcessExcel(c *gin.Context) {
 		json.Unmarshal([]byte(editsStr), &edits)
 	}
 
-	tmpPath := fmt.Sprintf("uploads/%d_%s", time.Now().UnixNano(), file.Filename)
-	if err := c.SaveUploadedFile(file, tmpPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al guardar archivo: " + err.Error()})
-		return
-	}
-	defer os.Remove(tmpPath)
+	var empleados []extractedEmployee
 
-	log.Printf("[process] leyendo Excel...")
-	t1 := time.Now()
-	empleados, err := extractEmployees(tmpPath)
-	if err != nil {
-		log.Printf("extractEmployees error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al leer Excel: " + err.Error()})
-		return
+	if sessionID != "" {
+		parsedCache.mu.Lock()
+		cached, ok := parsedCache.m[sessionID]
+		if ok {
+			delete(parsedCache.m, sessionID) // limpiar cache al importar
+		}
+		parsedCache.mu.Unlock()
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Sesión expirada, vuelve a subir el archivo"})
+			return
+		}
+		empleados = make([]extractedEmployee, len(cached))
+		copy(empleados, cached)
+	} else {
+		file, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No se encontró archivo"})
+			return
+		}
+
+		filename := file.Filename
+		if !strings.HasSuffix(strings.ToLower(filename), ".xlsx") && !strings.HasSuffix(strings.ToLower(filename), ".xls") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Solo se aceptan archivos Excel (.xlsx, .xls)"})
+			return
+		}
+
+		tmpPath := fmt.Sprintf("uploads/%d_%s", time.Now().UnixNano(), file.Filename)
+		if err := c.SaveUploadedFile(file, tmpPath); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al guardar archivo: " + err.Error()})
+			return
+		}
+		defer os.Remove(tmpPath)
+
+		t1 := time.Now()
+		empleados, err = extractEmployees(tmpPath)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		log.Printf("[process] extracción: %d empleados en %v", len(empleados), time.Since(t1))
 	}
-	log.Printf("[process] extractEmployees: %d empleados en %v", len(empleados), time.Since(t1))
 
 	for _, edit := range edits {
 		if edit.Idx >= 0 && edit.Idx < len(empleados) {
@@ -135,29 +180,55 @@ func ProcessExcel(c *gin.Context) {
 func ValidateExcel(c *gin.Context) {
 	db := getDB(c)
 
-	file, err := c.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No se encontró archivo"})
-		return
-	}
+	sessionID := c.PostForm("session_id")
 
-	filename := file.Filename
-	if !strings.HasSuffix(strings.ToLower(filename), ".xlsx") && !strings.HasSuffix(strings.ToLower(filename), ".xls") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Solo se aceptan archivos Excel (.xlsx, .xls)"})
-		return
-	}
+	var empleados []extractedEmployee
 
-	tmpPath := fmt.Sprintf("uploads/%d_%s", time.Now().UnixNano(), file.Filename)
-	if err := c.SaveUploadedFile(file, tmpPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al guardar archivo: " + err.Error()})
-		return
-	}
-	defer os.Remove(tmpPath)
+	if sessionID != "" {
+		// Re-validación con edits: cargar del cache
+		parsedCache.mu.RLock()
+		cached, ok := parsedCache.m[sessionID]
+		parsedCache.mu.RUnlock()
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"valid": false, "error": "Sesión expirada, vuelve a subir el archivo"})
+			return
+		}
+		empleados = make([]extractedEmployee, len(cached))
+		copy(empleados, cached)
+	} else {
+		// Primera validación: parsear archivo y guardar en cache
+		file, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No se encontró archivo"})
+			return
+		}
 
-	empleados, err := extractEmployees(tmpPath)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"valid": false, "error": err.Error()})
-		return
+		filename := file.Filename
+		if !strings.HasSuffix(strings.ToLower(filename), ".xlsx") && !strings.HasSuffix(strings.ToLower(filename), ".xls") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Solo se aceptan archivos Excel (.xlsx, .xls)"})
+			return
+		}
+
+		tmpPath := fmt.Sprintf("uploads/%d_%s", time.Now().UnixNano(), file.Filename)
+		if err := c.SaveUploadedFile(file, tmpPath); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al guardar archivo: " + err.Error()})
+			return
+		}
+		defer os.Remove(tmpPath)
+
+		empleados, err = extractEmployees(tmpPath)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"valid": false, "error": err.Error()})
+			return
+		}
+
+		// Cachear para re-validaciones rápidas
+		sessionID = genSessionID()
+		toCache := make([]extractedEmployee, len(empleados))
+		copy(toCache, empleados)
+		parsedCache.mu.Lock()
+		parsedCache.m[sessionID] = toCache
+		parsedCache.mu.Unlock()
 	}
 
 	editsStr := c.PostForm("edits")
@@ -214,6 +285,7 @@ func ValidateExcel(c *gin.Context) {
 		"planillas_estimadas": planillasEstimadas,
 		"sin_nombre":          sinNombre,
 		"monto_total":         montoTotal,
+		"session_id":          sessionID,
 	})
 }
 

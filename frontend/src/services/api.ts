@@ -85,12 +85,36 @@ export const importarApi = {
       timeout: 120000,
     })
   },
+  validateWithSession: (sessionId: string, edits: any[] = []) => {
+    const formData = new FormData()
+    formData.append('session_id', sessionId)
+    if (edits.length > 0) {
+      formData.append('edits', JSON.stringify(edits))
+    }
+    return api.post('/api/validate-excel', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 30000,
+    })
+  },
   process: (file: File, mes: number, anio: number, edits: any[] = []) => {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('mes', String(mes))
     formData.append('anio', String(anio))
     formData.append('edits', JSON.stringify(edits))
+    return api.post('/api/process-excel', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000,
+    })
+  },
+  processWithSession: (sessionId: string, mes: number, anio: number, edits: any[] = []) => {
+    const formData = new FormData()
+    formData.append('session_id', sessionId)
+    formData.append('mes', String(mes))
+    formData.append('anio', String(anio))
+    if (edits.length > 0) {
+      formData.append('edits', JSON.stringify(edits))
+    }
     return api.post('/api/process-excel', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 300000,

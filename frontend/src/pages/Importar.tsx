@@ -27,6 +27,7 @@ export default function Importar() {
   const [validacion, setValidacion] = useState<any>(null)
   const [periodosImportados, setPeriodosImportados] = useState<any[]>([])
   const [lockPeriodo, setLockPeriodo] = useState(false)
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const [editDuplicados, setEditDuplicados] = useState<Record<string, { dni: string; nombre: string }>>({})
   const [showLimpiar, setShowLimpiar] = useState(false)
   const [limpiarMes, setLimpiarMes] = useState(0)
@@ -43,7 +44,7 @@ export default function Importar() {
   }, [])
 
   useEffect(() => {
-    if (!validacion || !file) return
+    if (!validacion || !sessionId) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       try {
@@ -52,7 +53,7 @@ export default function Importar() {
           dni: val.dni,
           nombre: val.nombre,
         }))
-        const res = await importarApi.validate(file, editsArray)
+        const res = await importarApi.validateWithSession(sessionId, editsArray)
         setValidacion(res.data)
         const newExactos = new Set(res.data.exactos_indices || [])
         const currentKeys = Object.keys(editDuplicados)
@@ -66,7 +67,7 @@ export default function Importar() {
           setEditDuplicados(next)
         }
       } catch { /* ignore */ }
-    }, 400)
+    }, 100)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [editDuplicados])
 
@@ -103,6 +104,7 @@ export default function Importar() {
       const res = await importarApi.validate(file)
       const data = res.data
       setValidacion(data)
+      setSessionId(data.session_id || null)
       const exactosSet = new Set(data.exactos_indices || [])
       const edits: Record<string, { dni: string; nombre: string }> = {}
       ;(data.dnis_duplicados || []).forEach((item: any) => {
@@ -136,7 +138,9 @@ export default function Importar() {
         dni: val.dni,
         nombre: val.nombre,
       }))
-      const res = await importarApi.process(file, mes, anio, editsArray)
+      const res = sessionId
+        ? await importarApi.processWithSession(sessionId, mes, anio, editsArray)
+        : await importarApi.process(file, mes, anio, editsArray)
       const result = res.data
       sessionStorage.setItem('ultima_importacion', JSON.stringify({
         mes,
