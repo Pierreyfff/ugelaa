@@ -358,10 +358,10 @@ func importarEmpleados(db *gorm.DB, mes, anio int, empleados []extractedEmployee
 				if dbName == empName {
 					match = p
 				} else {
-					duplicados = append(duplicados,
-						fmt.Sprintf("DNI %s ya existe con nombre diferente (BD: '%s', Excel: '%s')",
-							emp.DNI, p.Apellidos+" "+p.Nombres, emp.Nombre))
-					skip = true
+					match = p
+					warnings = append(warnings,
+						fmt.Sprintf("DNI %s: nombre en Excel '%s' difiere de BD '%s'. Se usó el registro existente.",
+							emp.DNI, emp.Nombre, p.Apellidos+" "+p.Nombres))
 				}
 			}
 		}
