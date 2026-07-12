@@ -4,7 +4,7 @@ services:
     env: docker
     repo: https://github.com/Pierreyfff/ugelaa
     branch: ULTIMOO
-    dockerfilePath: ./backend/Dockerfile
+    rootDir: backend
     envVars:
       - key: DATABASE_URL
         sync: false
