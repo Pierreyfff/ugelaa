@@ -38,7 +38,7 @@ export default function Importar() {
   const [cleanError, setCleanError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const normalizeKey = (s: string) => s.toLowerCase().replace(/[^a-záéíóúñ0-9]/g, '')
+  const normalizeKey = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ')
 
   const localAnalyze = (emps: any[]) => {
     // Group by DNI first
@@ -110,7 +110,6 @@ export default function Importar() {
 
   const recalc = (edits: Record<string, { dni: string; nombre: string }>) => {
     if (!empleadosRaw.length) return
-    // Apply edits to a copy
     const emps = empleadosRaw.map(e => ({ ...e }))
     for (const [key, val] of Object.entries(edits)) {
       const idx = parseInt(key.replace('idx_', ''))
@@ -132,6 +131,26 @@ export default function Importar() {
       planillas_estimadas: planillas,
       monto_total: filtrados.reduce((s: number, e: any) => s + (e.total_liquido || 0), 0),
     } : prev)
+    setEditDuplicados(prev => {
+      let changed = false
+      const next = { ...prev }
+      for (const idx of exactos) {
+        const key = `idx_${idx}`
+        if (!next[key]) {
+          const emp = empleadosRaw[idx]
+          next[key] = { dni: emp?.dni || '', nombre: emp?.nombre || '' }
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }
+
+  const handleEditDuplicado = (key: string, field: 'dni' | 'nombre', value: string) => {
+    if (!editDuplicados[key]) return
+    const updated = { ...editDuplicados, [key]: { ...editDuplicados[key], [field]: value } }
+    setEditDuplicados(updated)
+    recalc(updated)
   }
 
   useEffect(() => {
@@ -139,12 +158,6 @@ export default function Importar() {
       setPeriodosImportados(res.data.periodos || [])
     }).catch(() => {})
   }, [])
-
-  useEffect(() => {
-    if (validacion && empleadosRaw.length > 0) {
-      recalc(editDuplicados)
-    }
-  }, [editDuplicados])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0]
@@ -192,6 +205,7 @@ export default function Importar() {
         })
       })
       setEditDuplicados(edits)
+      recalc(edits)
     } catch (err: any) {
       const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Error del servidor'
       setError(msg)
@@ -426,14 +440,14 @@ export default function Importar() {
                 </div>
               </div>
 
-              {(Object.keys(editDuplicados).length > 0) && (
+              {Object.keys(editDuplicados).length > 0 && (validacion.exactos_indices?.length ?? 0) > 0 && (
                 <div className="mb-4">
                   <div className="flex items-center gap-2 mb-3">
                     <Pencil className="w-4 h-4 text-amber-600" />
                     <p className="font-medium text-amber-800 dark:text-amber-300">Editar registros duplicados:</p>
                   </div>
                   <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {Object.entries(editDuplicados).map(([key, val]) => {
+                    {Object.entries(editDuplicados).filter(([key]) => (validacion.exactos_indices || []).includes(parseInt(key.replace('idx_', '')))).map(([key, val]) => {
                       const empIdx = parseInt(key.replace('idx_', ''))
                       const allEmpleados = (validacion.dnis_duplicados || []).flatMap((d: any) => d.empleados || [])
                       const emp = allEmpleados.find((e: any) => e.idx === empIdx)
@@ -445,7 +459,7 @@ export default function Importar() {
                               <input
                                 type="text"
                                 value={val.dni}
-                                onChange={e => setEditDuplicados(prev => ({ ...prev, [key]: { ...prev[key], dni: e.target.value } }))}
+                                onChange={e => handleEditDuplicado(key, 'dni', e.target.value)}
                                 className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-amber-300 dark:border-amber-600 rounded text-xs focus:outline-none focus:border-amber-500 text-gray-900 dark:text-white mt-0.5"
                                 maxLength={8}
                               />
@@ -455,7 +469,7 @@ export default function Importar() {
                               <input
                                 type="text"
                                 value={val.nombre}
-                                onChange={e => setEditDuplicados(prev => ({ ...prev, [key]: { ...prev[key], nombre: e.target.value } }))}
+                                onChange={e => handleEditDuplicado(key, 'nombre', e.target.value)}
                                 className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-amber-300 dark:border-amber-600 rounded text-xs focus:outline-none focus:border-amber-500 text-gray-900 dark:text-white mt-0.5"
                               />
                             </div>
