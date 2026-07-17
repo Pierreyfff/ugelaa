@@ -58,7 +58,7 @@ func ProcessExcel(c *gin.Context) {
 		return
 	}
 	anio, err := strconv.Atoi(anioStr)
-	if err != nil || anio < 2000 {
+	if err != nil || anio < 1900 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Año inválido"})
 		return
 	}
